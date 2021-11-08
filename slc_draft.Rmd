@@ -9,22 +9,27 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Task: build multiple linear regression and binary logistic regression models on the training data to predict the probability that a person will crash their car and also the amount of money it will cost if the person does crash their car. Using the training data set, build at least two different multiple linear regression models and three different binary logistic regression models, using different variables (or the same variables with different transformations).
 
-```{r echo = FALSE warning = FALSE}
+```{r echo = FALSE, message = FALSE}
 library(tidyverse)
 library(janitor)
 library(magrittr)
 library(flextable)
-library(dlookr)
-library(ggpubr)
+library(dlookr) # eda
+library(ggpubr) # creates a wrapper for plotting a list
 library(viridis)
-library(mice)
+library(broom) # creates a tidy data frame from statistical test results
+library(car) # VIF
+library(lmtest) #partial likelihood test for model fit comparisons
+library(caret) # conf matrix
+library(car) # marginal model plot
+library(pROC) #roc curve
 ```
 
 Import the dataset
 
 Findngs and Response: 
 
-1. Their are no dupicate rows
+1. There are no duplicate rows to worry about here
 
 
 ```{r}
@@ -81,7 +86,7 @@ df$education<-factor(df$education, levels=c("High School", "Bachelors", "Masters
   
 str(df)
 ```
-Assess missing data (dlooker)
+Assess missing data - dlookr package
 
 Recommend: impute missing numerical data 
 
@@ -162,7 +167,7 @@ Findings:
 
 1. Only income and homeval corr at >0.5 or <-0.5
 
-```{r}
+```{r fig.height=20, fig.width+20}
 
 #assess covariance 
 
@@ -174,7 +179,9 @@ df%>%
 df%>%plot_correlate()  
 ```
 
-Impute numerical values
+Impute numerical values 
+
+NOte: imputation method determined through iterative trials
 
 ```{r}
 
@@ -240,17 +247,31 @@ df%<>%mutate_if(is.numeric, round)
 
 #write.csv(df, 'C://Users//seanc//Documents//Data_Science//CUNY//621_BusinessAnalytics//insurance_model//df_clean.csv', row.names=FALSE)
 
-#write this work to csv for backup
+
 
 ```
-
-#create additional df's for possible use later
+Impute Categorical Variables - job
 
 ```{r}
-#df_clean<-df  #create a clean backup to avoid further imputation
 
-#df_cc<-df_clean%>%complete.cases()
+job<-imputate_na(df, job, method = "mice", seed = 999)
+
+plot(job)
+
+
+# combine into new dfb
+
+df<-df%>%select(!job)
+df<-cbind(df,job)
+df$job<-factor(df$job)
+
 ```
+Save csv with imputed values 
+
+```{r}
+#write.csv(df, 'C://Users//seanc//Documents//Data_Science//CUNY//621_BusinessAnalytics//insurance_model//df_clean_imputed.csv', row.names=FALSE)
+```
+
 
 Assess Outliers
 
@@ -282,12 +303,12 @@ Findings:
 
 1. Obv. Patterns - parent1, mstatus, education, job, car use, car type, revoked, urbanicity
 
-```{r fig.height=5 fig.width=3}
+```{r fig.height=5, fig.width=8}
 
 df %>% 
-  target_by(target_flag) %>%      
-  relate(parent1) %>% 
-  plot()
+  target_by(target_flag) %>%
+    relate(parent1) %>%
+    plot()
 
 df %>% 
   target_by(target_flag) %>%      
@@ -301,8 +322,9 @@ df %>%
 
 df %>% 
   target_by(target_flag) %>%      
-  relate(education) %>% 
+  relate(education) %>%
   plot()
+  
 
 df %>% 
   target_by(target_flag) %>%      
@@ -339,13 +361,12 @@ df %>%
 ```
 Plot numerical variables
 
-```{r fig.height=15 fig.width=25}
-
-library(ggpubr) # creates a wrapper for plotting a list
+```{r fig.height=15, fig.width=25}
 
 num_box<-select_if(df, is.numeric)
-num_box<-cbind(df$target_flag, num)%>%
-    rename(target_flag= 'df$target_flag')
+num_box<-cbind(df$target_flag, num_box)%>%
+    rename(target_flag = 'df$target_flag')
+
 
 response = names(num_box)[1] #target_flag
 response = purrr::set_names(response)
@@ -367,10 +388,272 @@ b_plots<-map(explain, ~box_fun(.x)) #creates a list of plots
 
 ggarrange(plotlist=b_plots, height = .5, ncol = 3)
 ```
-# Additional data transformations
+Feature engineering - factor and levels
 
 ```{r}
 
+
+df%<>%
+    select(!c(target_amt))
+
+# change kidsdrive to categorical
+    
+df%<>%
+    mutate(kidsdriv = case_when(kidsdriv == 0 ~ 'N'
+         ,TRUE  ~ 'Y'))
+
+# change job into blue collar and professional levels
+
+df%<>%
+    mutate(job = case_when(job == 'Blue Collar' ~ 'Blue Collar',
+                           job != 'Blue Collar' ~ 'Professional', 
+                           TRUE ~ as.character(NA)))
+
+df%<>%mutate(job = na_if(job, "NA"))
+
+#change chars to factors and level education
+
+df %<>%mutate_if(is_character, ~(factor(.)))%>%select(!index)
+
+df$education<-factor(df$education, levels=c("High School", "Bachelors", "Masters", "PhD"))
+
+
+```
+Base logistic model 
+
+- based on prior work we remove red_car and age
+
+```{r}
+
+model_df<-df%>%select(!c(red_car, age))
+
+base_model <- glm(target_flag ~ .,family='binomial', model_df)
+
+summary(base_model)
+```
+#check assumptions - linearity
+
+Findings: yoj and travtime may not be linear with regard to logit
+
+```{r}
+
+#include probabilities and logit to df
+
+model_df_vars<-model_df
+
+model_df_vars$predicted<-predict(base_model, type='response')
+
+model_df_vars%<>%
+    mutate(logit = log(predicted/(1-predicted)))
+
+# check linearity btwn numerical predictors and logit
+
+with(model_df_vars, scatter.smooth(travtime, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model_df_vars, scatter.smooth(tif, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model_df_vars, scatter.smooth(mvr_pts, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model_df_vars, scatter.smooth(home_val, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model_df_vars, scatter.smooth(yoj, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model_df_vars, scatter.smooth(income, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model_df_vars, scatter.smooth(homekids, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+
 ```
 
+Review possible tranformations based on distributions of numerical predictors
+
+findings: sqrt travtime and log yoj
+
+```{r}
+plot_normality(logistic2)
+
+```
+
+
+
+#Evaluate outliers and infuential obs
+
+computes the standardized residuals (.std.resid) and the Cook’s distance (.cooksd) using the R function augment() [broom package]
+
+See: http://www.sthda.com/english/articles/36-classification-methods-essentials/148-logistic-regression-assumptions-and-diagnostics-in-r/
+
+Findings: we have one influential obs #5101
+```{r}
+
+# Extract model results
+
+base_model$data <- augment(base_model) %>% 
+  mutate(index = 1:n()) 
+
+#top 3 largest values
+
+base_model$data %>% top_n(3, .cooksd)
+
+plot(base_model, which = 4, id.n = 3)
+
+#plot std residuals
+
+ggplot(base_model$data, aes(index, .std.resid)) + 
+  geom_point(aes(color = target_flag), alpha = .5) +
+  theme_bw()
+
+#Filter potential influential data points with abs(.std.res) > 3
+
+base_model$data %>% 
+  filter(abs(.std.resid) > 3)
+```
+# Assess multicollinearity
+
+Findings: no problems with collinearity
+
+```{r}
+car::vif(base_model)
+```
+#rerun base model without the influential obs 
+
+```{r}
+
+model_df<-model_df%>%slice(-5101) # remove influential obs
+
+base_model <- glm(target_flag ~ .,family='binomial', model_df) 
+
+summary(base_model)
+```
+# Check residuals
+
+```{r fig.height=10, fig.width=15}
+
+res_chk<-model_df%>%na.omit()%>%mutate('residuals' = residuals(base_model), linpred = predict(base_model))
+
+gdf<- group_by(res_chk, cut(linpred, breaks=unique(quantile(linpred, (1:100)/101))))
+
+diagdf<-summarize(gdf, residuals=mean(residuals), linpred = mean(linpred))
+
+plot(residuals~linpred, diagdf, xlab = "linear predictor")
+
+
+```
+#check marginal model
+
+Findings: we have issues with trav_time, yoj, and possibly mvr points. 
+
+```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
+marginals<-mmps(base_model,main=NULL)
+```
+
+Transformations
+
+- limit travtime to remove extreme distances (this may not be defensible)
+- remove yoj
+- sqrt: travtime, home_val, income, clm_freq. Note that the model would not converge using log transformations. 
+
+```{r}
+
+trans_df<-model_df%>%filter(travtime <100)
+
+trans_model <- glm(target_flag~kidsdriv+parent1+mstatus+sex+education+job+sqrt(travtime)+
+                  car_use+tif+sqrt(clm_freq)+revoked+mvr_pts+urbanicity+sqrt(home_val)+sqrt(income),family='binomial',trans_df)
+summary(trans_model)
+```
+
+Plot marginal contributions with the transformed variable model
+
+```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
+
+marg<-mmps(trans_model,main=NULL)
+```
+
+```{r }
+#include probabilities and logit to df
+
+trans_df_var<-trans_df#%>%na.omit()
+
+trans_df_var$predicted<-predict(trans_model, type='response')
+
+trans_df_var%<>%
+    mutate(logit = log(predicted/(1-predicted)))
+
+# check linearity btwn numerical predictors and logit
+
+with(trans_df_var, scatter.smooth(travtime, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(trans_df_var, scatter.smooth(tif, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(trans_df_var, scatter.smooth(mvr_pts, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(trans_df_var, scatter.smooth(home_val, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(trans_df_var, scatter.smooth(income, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(trans_df_var, scatter.smooth(homekids, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+
+
+```
+
+#check residuals for transformed var model
+
+Note - the plot includes raw resids. Would studentized residuals be more appropriate?
+
+```{r}
+trans_resid<-trans_df%>%na.omit()%>%mutate('residuals' = residuals(trans_model), linpred = predict(trans_model))
+
+gdf<- group_by(trans_resid, cut(linpred, breaks=unique(quantile(linpred, (1:100)/101))))
+
+diagdf<-summarize(gdf, residuals=mean(residuals), linpred = mean(linpred))
+
+plot(residuals~linpred, diagdf, xlab = "linear predictor")
+
+```
+
+
+
+
+
+#other fit assessments - confusion matrix, ROC, AUC
+
+prediction threshold can be varied depending on desired cost:benefit for insurer
+```{r}
+
+# create col for class category (0,1) based on predicted probabilities 
+
+cm_df<-trans_df_var%>%
+    mutate(predicted_obs = case_when(
+        predicted >= 0.5 ~ 1,
+        predicted < 0.5 ~0))
+
+#ensure the obs and predicted are factors with same levels
+
+cm_df$predicted_obs<-as.factor(trans_df_var$predicted_obs)
+cm_df$target_flag<-as.factor(trans_df_var$target_flag)
+
+#confusion matrix
+
+confusionMatrix(data = trans_df_var$predicted_obs, reference = trans_df_var$target_flag)
+
+#roc curve with AUC
+
+par(pty='s')
+
+proc<- roc(response=trans_df_var$target_flag, predictor=trans_df_var$predicted, plot=TRUE, legacy.axes=TRUE, auc.polygon=TRUE, col='blue', main = 'PROC ROC Curve', max.auc.polygon=TRUE, print.auc=TRUE)
+
+```
+
+Assess goodness of fit between base model and transformed var model
+```{r}
+
+
+#compare difference for base_model and base_modelb coefficients (no strong diff) 
+
+c_base<-coef(base_model)%>%as.list() # convert to list to remove yoj
+
+c_base<-c_base%>% purrr::list_modify("yoj" = NULL)
+
+c_base%<>%as.double() #convert back to double-precision vector
+
+delta.coef<-abs((coef(trans_df_var)-c_base)/c_base)
+
+round(delta.coef,3)
+
+#partial likelihood ratio test to compare fit of the two models (no diff)
+
+lrtest(base_model, trans_df_var)
+
+#Anova to compare fit (none found)
+
+anova(base_model, trans_df_var, test='Chisq')
+
+```
 
