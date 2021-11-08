@@ -1,0 +1,376 @@
+---
+title: "insurance model"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Task: build multiple linear regression and binary logistic regression models on the training data to predict the probability that a person will crash their car and also the amount of money it will cost if the person does crash their car. Using the training data set, build at least two different multiple linear regression models and three different binary logistic regression models, using different variables (or the same variables with different transformations).
+
+```{r echo = FALSE warning = FALSE}
+library(tidyverse)
+library(janitor)
+library(magrittr)
+library(flextable)
+library(dlookr)
+library(ggpubr)
+library(viridis)
+library(mice)
+```
+
+Import the dataset
+
+Findngs and Response: 
+
+1. Their are no dupicate rows
+
+
+```{r}
+raw <- read_csv('insurance_training_data.csv')
+
+# initial clean of col names
+
+raw%<>%clean_names
+
+# remove any empty rows and cols
+
+raw%<>%remove_empty(c("rows", "cols"))
+
+# assess presence of duplicates
+
+get_dupes(raw)
+
+# basic characterization
+
+str(raw)
+
+#clean extraneous symbols from char col values and convert to numeric as appropriate
+
+df<-raw%>%
+    mutate_if(is_character, str_replace_all, '\\$|,|z_|<', '')%>%
+    mutate_at(c(8,10,17,21), as.numeric)%>%
+    mutate_at(c(2), as.factor)
+
+# round numeric columns
+
+df%<>%mutate_if(is.numeric, round)
+
+# identify unique values in our character cols
+
+id_distinct <- df%>%
+    select(where(is_character))%>%
+    map(~str_c(unique(.x),collapse = ",")) %>% 
+    bind_rows() %>% 
+    gather(key = col_name, value = col_unique)
+
+# Update col values for clarity and brevity
+
+df%<>%
+    mutate_if(is_character, str_replace_all, "No|no",'N')%>%
+    mutate_if(is_character, str_replace_all, "Yes|yes",'Y')%>%
+    mutate_if(is_character, str_replace_all, "Highly Urban/ Urban",'Urban')%>%
+    mutate_if(is_character, str_replace_all, "Highly Rural/ Rural",'Rural')
+
+# convert character cols to factor and set level for education col
+
+df %<>%mutate_if(is_character, ~(factor(.)))
+
+df$education<-factor(df$education, levels=c("High School", "Bachelors", "Masters", "PhD"))
+  
+str(df)
+```
+Assess missing data (dlooker)
+
+Recommend: impute missing numerical data 
+
+```{r fig.height = 8, fig.width = 15}
+
+#basic missing table
+    
+df%>%
+    diagnose()%>%
+    select(-unique_count, -unique_rate)%>%
+    filter(missing_count>0)%>%
+    arrange(desc(missing_count))%>%
+    flextable()
+
+# missing plots 
+
+df%>%plot_na_pareto(only_na = TRUE) # only plots vars with missing
+df%>%plot_na_intersect(only_na = TRUE)
+
+```
+Assess other data characteristics - tables
+
+Findings:
+
+Skewed Data - target_amt, kidsdriv, homekids, oldclaim, clm_freq, mvr_pts, yoj, income
+
+Percent Outliers (>5%) - target_amt, kidsdriv, homekids, oldclaim, yoj
+
+Errors (neg vals) - car_age (1 obs)
+
+Recommend:
+
+- convert neg value in car_age to NA
+
+Possible transformations
+
+- travtime (sqrt), bluebook(sqrt), old-claim(log), homeval(log), income(sqrt)
+
+```{r}
+#identify highly skewed data
+
+df%>%find_skewness(index=FALSE, thres=TRUE) #this is good
+
+#identify outliers
+
+df%>%find_outliers(index=FALSE, rate=TRUE) # this is good
+
+# assess normality - Shapiro Wilke
+
+df%>%normality()
+
+df%>%plot_normality()	
+
+# other diagnostics
+
+df%>%
+    diagnose_numeric()%>%
+    select(variables, min, mean, median, max, zero, minus)%>%
+    flextable(theme_fun = theme_booktabs())
+
+df%>%
+    diagnose_category()%>%
+    flextable(theme_fun = theme_booktabs())
+```
+
+Correct obvious data errors
+
+```{r}
+
+df$car_age[df$car_age < 0] <- NA
+
+
+```
+
+Pairwise comparisons
+
+Findings:
+
+1. Only income and homeval corr at >0.5 or <-0.5
+
+```{r}
+
+#assess covariance 
+
+df%>%
+    select(!index)%>%
+    correlate()%>%
+    filter(coef_corr > .5 | coef_corr < -.5)
+
+df%>%plot_correlate()  
+```
+
+Impute numerical values
+
+```{r}
+
+#impute numerical vars using dlookr, methods have been preselected based on initial plots.
+
+#car_age
+
+plot(imputate_na(df, car_age, target_flag, method = "mice", seed = 999))+
+  theme_minimal()+ theme(legend.position = "top")
+
+car_age<-imputate_na(df, car_age, target_flag, method = "mice", seed = 999)
+
+summary(car_age)
+
+
+#home_val
+
+plot(imputate_na(df, home_val, target_flag, method = "rpart"))+
+  theme_minimal()+
+  theme(legend.position = "top")
+
+home_val<-imputate_na(df, home_val, target_flag, method = "rpart")
+
+summary(home_val)
+
+#yoj
+
+plot(imputate_na(df, yoj, target_flag, method = "rpart"))+
+  theme_minimal()+
+  theme(legend.position = "top")
+
+yoj<- imputate_na(df, yoj, target_flag, method = "rpart")
+
+summary(yoj)
+
+# income
+
+plot(imputate_na(df, income, target_flag, method = "rpart"))+
+  theme_minimal()+
+  theme(legend.position = "top")
+
+income<-imputate_na(df, income, target_flag, method = "rpart")
+
+summary(income)
+
+#age
+
+plot(imputate_na(df, age, method = "rpart"))+  #any of the tests work here
+  theme_minimal()+
+  theme(legend.position = "top")
+
+age<-imputate_na(df, age, method = "rpart")
+
+summary(age)
+
+temp<-cbind(car_age, home_val, yoj, income, age)
+temp%<>%as.data.frame(temp)
+
+df%<>%select(!c(car_age, home_val, yoj, income, age))%>%
+    cbind(temp)
+
+df%<>%mutate_if(is.numeric, round)
+
+#write.csv(df, 'C://Users//seanc//Documents//Data_Science//CUNY//621_BusinessAnalytics//insurance_model//df_clean.csv', row.names=FALSE)
+
+#write this work to csv for backup
+
+```
+
+#create additional df's for possible use later
+
+```{r}
+#df_clean<-df  #create a clean backup to avoid further imputation
+
+#df_cc<-df_clean%>%complete.cases()
+```
+
+Assess Outliers
+
+Findings:
+
+1. Outliers (>5%) - target_amt, kidsdriv, homekids, oldclaim, yoj
+
+2. High Zero Freq - target_amt, kidsdriv, homekids, oldclaim, mvr_pts, car_age, 
+    home_val (why?)
+
+Recommend: 
+
+- create  2-level factor for kids_drive, home_kids
+- create 2 or 3 -level factor for tiff(?)
+- respond to zero inflation for target_age, old_claim and car age (?)
+
+```{r}
+diagnose_outlier(df) %>% flextable()
+
+df %>% 
+    select(find_outliers(df, index = FALSE)) %>% 
+    plot_outlier()
+```
+
+
+# Review categorical vars in relation to target
+
+Findings:
+
+1. Obv. Patterns - parent1, mstatus, education, job, car use, car type, revoked, urbanicity
+
+```{r fig.height=5 fig.width=3}
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(parent1) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(mstatus) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(sex) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(education) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(job) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(car_use) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(car_type) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(red_car) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(revoked) %>% 
+  plot()
+
+df %>% 
+  target_by(target_flag) %>%      
+  relate(urbanicity) %>% 
+  plot()
+
+
+
+```
+Plot numerical variables
+
+```{r fig.height=15 fig.width=25}
+
+library(ggpubr) # creates a wrapper for plotting a list
+
+num_box<-select_if(df, is.numeric)
+num_box<-cbind(df$target_flag, num)%>%
+    rename(target_flag= 'df$target_flag')
+
+response = names(num_box)[1] #target_flag
+response = purrr::set_names(response)
+
+explain <- names(num_box)[3:16] #explanatory variables
+explain = purrr::set_names(explain)
+
+box_fun = function(x) {
+    ggplot(num_box, aes_string(x = x, y = 'target_flag') ) +
+    geom_boxplot(aes(fill = target_flag, alpha = 0.4), outlier.color =
+    'red', show.legend = FALSE)+
+    scale_fill_viridis(discrete = TRUE, option = "E")+
+    coord_flip()+
+    theme_classic()
+    
+}
+
+b_plots<-map(explain, ~box_fun(.x)) #creates a list of plots
+
+ggarrange(plotlist=b_plots, height = .5, ncol = 3)
+```
+# Additional data transformations
+
+```{r}
+
+```
+
+
