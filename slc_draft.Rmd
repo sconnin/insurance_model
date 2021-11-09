@@ -29,7 +29,7 @@ Import the dataset
 
 Findngs and Response: 
 
-1. There are no duplicate rows to worry about here
+1. There are no duplicate rows to worry about here.
 
 
 ```{r}
