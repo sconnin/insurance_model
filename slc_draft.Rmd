@@ -1,6 +1,8 @@
 ---
 title: "insurance model"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -172,9 +174,9 @@ Findings:
 #assess covariance 
 
 df%>%
-    select(!index)%>%
+   # select(!index)%>%
     correlate()%>%
-    filter(coef_corr > .5 | coef_corr < -.5)
+    filter(coef_corr > .4 | coef_corr < -.4)
 
 df%>%plot_correlate()  
 ```
@@ -189,51 +191,44 @@ NOte: imputation method determined through iterative trials
 
 #car_age
 
-plot(imputate_na(df, car_age, target_flag, method = "mice", seed = 999))+
-  theme_minimal()+ theme(legend.position = "top")
-
 car_age<-imputate_na(df, car_age, target_flag, method = "mice", seed = 999)
+
+plot(car_age)+theme_minimal()+theme(legend.position = "top")
 
 summary(car_age)
 
 
 #home_val
 
-plot(imputate_na(df, home_val, target_flag, method = "rpart"))+
-  theme_minimal()+
-  theme(legend.position = "top")
 
 home_val<-imputate_na(df, home_val, target_flag, method = "rpart")
+
+plot(home_val)+theme_minimal()+theme(legend.position = "top")
 
 summary(home_val)
 
 #yoj
 
-plot(imputate_na(df, yoj, target_flag, method = "rpart"))+
-  theme_minimal()+
-  theme(legend.position = "top")
 
 yoj<- imputate_na(df, yoj, target_flag, method = "rpart")
+
+plot(yoj)+theme_minimal()+theme(legend.position = "top")
 
 summary(yoj)
 
 # income
 
-plot(imputate_na(df, income, target_flag, method = "rpart"))+
-  theme_minimal()+
-  theme(legend.position = "top")
-
 income<-imputate_na(df, income, target_flag, method = "rpart")
+
+plot(income)+theme_minimal()+theme(legend.position = "top")
 
 summary(income)
 
 #age
 
-plot(imputate_na(df, age, method = "rpart"))+  #any of the tests work here
-  theme_minimal()+
-  theme(legend.position = "top")
-
 age<-imputate_na(df, age, method = "rpart")
+
+plot(age)+theme_minimal()+theme(legend.position = "top")
 
 summary(age)
 
@@ -256,7 +251,7 @@ Impute Categorical Variables - job
 
 job<-imputate_na(df, job, method = "mice", seed = 999)
 
-plot(job)
+plot(job)+theme_minimal()+theme(legend.position = "top")
 
 
 # combine into new dfb
@@ -419,241 +414,344 @@ df$education<-factor(df$education, levels=c("High School", "Bachelors", "Masters
 
 
 ```
-Base logistic model 
+**Model 1: Base logistic model **
 
 - based on prior work we remove red_car and age
 
 ```{r}
 
-model_df<-df%>%select(!c(red_car, age))
+#build model
 
-base_model <- glm(target_flag ~ .,family='binomial', model_df)
+base_df<-df
 
-summary(base_model)
+model1 <- glm(target_flag ~ .,family='binomial', base_df) 
+
+model1_aki<-step(model1, trace=0) # use Akiaike step, trace 0 prevents intermediate printing, rename model to preserve base
+
+summary(model1_aki)
+
 ```
-#check assumptions - linearity
 
-Findings: yoj and travtime may not be linear with regard to logit
+
+***Model 1: confusion matrix, related measures, ROC curve***
 
 ```{r}
 
-#include probabilities and logit to df
+#look at fit metrics - create parallel df for this purpose
 
-model_df_vars<-model_df
+model1_df<-base_df%>%
+  select(!c(sex, age, car_age, red_car)) # nonsignificant in model1
 
-model_df_vars$predicted<-predict(base_model, type='response')
+model1_df$predicted<-predict(model1_aki, type='response')
 
-model_df_vars%<>%
+model1_df%<>%
+  mutate(predicted_obs = case_when(
+        predicted >= 0.5 ~ 1,
+        predicted < 0.5 ~ 0))
+
+model1_df$predicted_obs<-as.factor(model1_df$predicted_obs)
+model1_df$target_flag<-as.factor(model1_df$target_flag)
+
+#create confusion matrix
+
+(model1_cm<-confusionMatrix(data = model1_df$predicted_obs, reference = model1_df$target_flag))
+
+# related model results - drawing code from HW3
+
+(model1_metrics <- tibble(model = "Base Model: base variables",
+                  predictors = length(coef(model1_aki))-1,
+                  precision = model1_cm$byClass[5],
+                  auc = auc(roc(response = as.numeric(model1_df$target_flag),
+                                predictor = as.numeric(model1_df$predicted)))[1],  #note: using predicted (probs) vs predicted_obs (0,1)
+                  AIC = model1_aki$aic, BIC = BIC(model1_aki)))
+
+#roc curve with AUC
+ 
+par(pty='s')
+
+proc<- roc(response=model1_df$target_flag, predictor=model1_df$predicted, plot=TRUE, legacy.axes=TRUE, auc.polygon=TRUE, col='blue', main = 'Model 1 ROC Curve', max.auc.polygon=TRUE, print.auc=TRUE)
+
+```
+
+***Model 1: Assess for overdispersion***
+
+- no evidence of dispersion
+
+```{r}
+
+# evaluate using deviance and quasibinomial comparison
+
+
+deviance(model1_aki)/df.residual(model1_aki) # if considerably greater than one we should be concerned
+
+ 
+# dble check with two model fit
+
+quasi_model <-  glm(target_flag ~ .,family='quasibinomial', base_df) # note: using base_df
+  
+pchisq(summary(quasi_model)$dispersion * model1_aki$df.residual,
+ model1_aki$df.residual, lower = F)  
+```
+
+***Model 1: Check linearity of numerical vars vs. logit***
+
+Linearity is questionable for yoj, home-kids, oldclaim
+
+Note clustering in oldclaim - consider turning into 3-level factor?
+
+```{r}
+
+#incorporate logit into model1_df
+
+
+model1_df%<>%
     mutate(logit = log(predicted/(1-predicted)))
 
 # check linearity btwn numerical predictors and logit
 
-with(model_df_vars, scatter.smooth(travtime, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(model_df_vars, scatter.smooth(tif, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(model_df_vars, scatter.smooth(mvr_pts, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(model_df_vars, scatter.smooth(home_val, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(model_df_vars, scatter.smooth(yoj, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(model_df_vars, scatter.smooth(income, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(model_df_vars, scatter.smooth(homekids, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(travtime, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(tif, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(mvr_pts, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(home_val, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(yoj, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(income, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(homekids, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(oldclaim, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(clm_freq, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+with(model1_df, scatter.smooth(bluebook, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
 
-```
-
-Review possible tranformations based on distributions of numerical predictors
-
-findings: sqrt travtime and log yoj
-
-```{r}
-plot_normality(logistic2)
 
 ```
 
 
-
-#Evaluate outliers and infuential obs
+#Model 1 evaluate outliers and infuential obs
 
 computes the standardized residuals (.std.resid) and the Cook’s distance (.cooksd) using the R function augment() [broom package]
 
 See: http://www.sthda.com/english/articles/36-classification-methods-essentials/148-logistic-regression-assumptions-and-diagnostics-in-r/
 
-Findings: we have one influential obs #5101
+Findings:
+
+Cooks distance indicates several standout obs (3722, 3592, 6501) but no influential points (id. D >1.0)
+
+Only 1 obs has std residual beyond 3 stdev: 5101
+
+
 ```{r}
+
+
 
 # Extract model results
 
-base_model$data <- augment(base_model) %>% 
+model1_aki$data <- augment(model1_aki) %>% 
   mutate(index = 1:n()) 
 
-#top 3 largest values
+#top 10 largest values
 
-base_model$data %>% top_n(3, .cooksd)
+model1_aki$data %>% top_n(10, .cooksd)
 
-plot(base_model, which = 4, id.n = 3)
+plot(model1_aki, which = 4, id.n = 3)  # keep an eye on obs > 4/n 
 
 #plot std residuals
 
-ggplot(base_model$data, aes(index, .std.resid)) + 
+ggplot(model1_aki$data, aes(index, .std.resid)) + 
   geom_point(aes(color = target_flag), alpha = .5) +
   theme_bw()
 
 #Filter potential influential data points with abs(.std.res) > 3
 
-base_model$data %>% 
+model1_aki$data %>% 
   filter(abs(.std.resid) > 3)
 ```
-# Assess multicollinearity
+***Model 1 Assess multicollinearity***
 
 Findings: no problems with collinearity
 
 ```{r}
-car::vif(base_model)
+
+car::vif(model1_aki)
 ```
-#rerun base model without the influential obs 
 
-```{r}
+***Model 1 check std residuals for independence: resids vs. logit ***
 
-model_df<-model_df%>%slice(-5101) # remove influential obs
-
-base_model <- glm(target_flag ~ .,family='binomial', model_df) 
-
-summary(base_model)
-```
-# Check residuals
+We see a definite pattern which suggests that the model may be misclassified
 
 ```{r fig.height=10, fig.width=15}
 
-res_chk<-model_df%>%na.omit()%>%mutate('residuals' = residuals(base_model), linpred = predict(base_model))
+res_chk<-model1_df%>%mutate('residuals' = residuals(model1_aki), linpred = predict(model1_aki))
 
-gdf<- group_by(res_chk, cut(linpred, breaks=unique(quantile(linpred, (1:100)/101))))
+bins<- group_by(res_chk, cut(linpred, breaks=unique(quantile(linpred, (1:100)/101))))
 
-diagdf<-summarize(gdf, residuals=mean(residuals), linpred = mean(linpred))
+diag<-summarize(bins, residuals=mean(residuals), linpred = mean(linpred))
 
-plot(residuals~linpred, diagdf, xlab = "linear predictor")
+plot(residuals~linpred, diag, xlab = "linear predictor")
 
 
 ```
-#check marginal model
+***Evaluate marginal plots to assess fit***
 
-Findings: we have issues with trav_time, yoj, and possibly mvr points. 
+Findings: we have issues with trav_time, bluebook, income,  claim_freq, mvr_pts, and yoj  
 
-```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
-marginals<-mmps(base_model,main=NULL)
-```
-
-Transformations
-
-- limit travtime to remove extreme distances (this may not be defensible)
-- remove yoj
-- sqrt: travtime, home_val, income, clm_freq. Note that the model would not converge using log transformations. 
-
-```{r}
-
-trans_df<-model_df%>%filter(travtime <100)
-
-trans_model <- glm(target_flag~kidsdriv+parent1+mstatus+sex+education+job+sqrt(travtime)+
-                  car_use+tif+sqrt(clm_freq)+revoked+mvr_pts+urbanicity+sqrt(home_val)+sqrt(income),family='binomial',trans_df)
-summary(trans_model)
-```
-
-Plot marginal contributions with the transformed variable model
 
 ```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
 
-marg<-mmps(trans_model,main=NULL)
-```
-
-```{r }
-#include probabilities and logit to df
-
-trans_df_var<-trans_df#%>%na.omit()
-
-trans_df_var$predicted<-predict(trans_model, type='response')
-
-trans_df_var%<>%
-    mutate(logit = log(predicted/(1-predicted)))
-
-# check linearity btwn numerical predictors and logit
-
-with(trans_df_var, scatter.smooth(travtime, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(trans_df_var, scatter.smooth(tif, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(trans_df_var, scatter.smooth(mvr_pts, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(trans_df_var, scatter.smooth(home_val, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(trans_df_var, scatter.smooth(income, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(trans_df_var, scatter.smooth(homekids, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-
+marginals<-mmps(model1_aki,main=NULL)
 
 ```
 
-#check residuals for transformed var model
+**Model 2 - Include predictor transformations**
 
-Note - the plot includes raw resids. Would studentized residuals be more appropriate?
+The following transformations result from some trial and error:
 
-```{r}
-trans_resid<-trans_df%>%na.omit()%>%mutate('residuals' = residuals(trans_model), linpred = predict(trans_model))
+sqrt: travtime, mvr_pts, yoj, clm_freq, income
 
-gdf<- group_by(trans_resid, cut(linpred, breaks=unique(quantile(linpred, (1:100)/101))))
+log: bluebook
 
-diagdf<-summarize(gdf, residuals=mean(residuals), linpred = mean(linpred))
+Note: AIC has gone down slightly relative to Model1
 
-plot(residuals~linpred, diagdf, xlab = "linear predictor")
-
-```
+travtime, clm_freq, mvr_pts still off
 
 
+```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
+
+#create df to contain log transformed vars from model 
+
+model2_df<-model1_df%>%
+  select(!c(predicted, predicted_obs))%>%
+  mutate(sqrt_travtime = sqrt(travtime))%>%
+  mutate(sqrt_mvr_pts = sqrt(mvr_pts))%>% 
+  mutate(sqrt_yoj = sqrt(yoj))%>% 
+  mutate(sqrt_clm_freq = sqrt(clm_freq))%>% 
+  mutate(log_bluebook= log(bluebook))%>%
+  mutate(sqrt_income=sqrt(income))
+
+model2_df%<>%
+  select(!c(travtime, mvr_pts, yoj, clm_freq, bluebook, income))
+
+#build model with transformed vars
+
+model2 <- glm(target_flag~kidsdriv+homekids+parent1+mstatus+education+car_use+tif+car_type+oldclaim+revoked+urbanicity+home_val+job+sqrt_travtime+sqrt_mvr_pts+sqrt_yoj+sqrt_clm_freq+log_bluebook+sqrt_income,family='binomial',model2_df)
+
+model2_aki<-step(model2, trace=0) 
+
+summary(model2_aki)
+
+#additional metrics
 
 
+model2_df$predicted<-predict(model2_aki, type='response')
 
-#other fit assessments - confusion matrix, ROC, AUC
-
-prediction threshold can be varied depending on desired cost:benefit for insurer
-```{r}
-
-# create col for class category (0,1) based on predicted probabilities 
-
-cm_df<-trans_df_var%>%
-    mutate(predicted_obs = case_when(
+model2_df%<>%
+  mutate(predicted_obs = case_when(
         predicted >= 0.5 ~ 1,
-        predicted < 0.5 ~0))
+        predicted < 0.5 ~ 0))
 
-#ensure the obs and predicted are factors with same levels
-
-cm_df$predicted_obs<-as.factor(trans_df_var$predicted_obs)
-cm_df$target_flag<-as.factor(trans_df_var$target_flag)
+model2_df$predicted_obs<-as.factor(model2_df$predicted_obs)
+model2_df$target_flag<-as.factor(model2_df$target_flag)
 
 #confusion matrix
 
-confusionMatrix(data = trans_df_var$predicted_obs, reference = trans_df_var$target_flag)
+model2_cm<-confusionMatrix(data = model2_df$predicted_obs, reference = model2_df$target_flag)
+
+# interaction results
+
+model2_mtrics <- tibble(model = "transformation Model: base variables",
+                  predictors = length(coef(model2_aki))-1,
+                  precision = model2_cm$byClass[5],
+                  auc = auc(roc(response = as.numeric(model2_df$target_flag),
+                                predictor = as.numeric(model2_df$predicted)))[1],
+                  AIC = model2_aki$aic, BIC = BIC(model2_aki))
 
 #roc curve with AUC
 
 par(pty='s')
 
-proc<- roc(response=trans_df_var$target_flag, predictor=trans_df_var$predicted, plot=TRUE, legacy.axes=TRUE, auc.polygon=TRUE, col='blue', main = 'PROC ROC Curve', max.auc.polygon=TRUE, print.auc=TRUE)
+proc<- roc(response=model2_df$target_flag, predictor=model2_df$predicted, plot=TRUE, legacy.axes=TRUE, auc.polygon=TRUE, col='blue', main = 'PROC ROC Curve', max.auc.polygon=TRUE, print.auc=TRUE)
 
+#review marginal plots
+
+model2_marg<-mmps(model2_aki,main=NULL)
 ```
 
-Assess goodness of fit between base model and transformed var model
-```{r}
+**Model 2b - update transformatins to include polynomials for a check**
+
+reassess using polynomial for travtime, clm_freq, mvr_pts 
+
+Note: very slight improvement in AIC, improved marginals, much harder to interpret.
+
+```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
+
+#create df to contain log transformed vars from model 
+
+model2b_df<-model1_df%>%
+  select(!c(predicted, predicted_obs))%>%
+  mutate(sqrt_yoj = sqrt(yoj))%>% 
+  mutate(log_bluebook= log(bluebook))%>%
+  mutate(sqrt_income=sqrt(income))
+
+model2b_df%<>%
+  select(!c( yoj, bluebook, income))
+
+#build model with transformed vars
 
 
-#compare difference for base_model and base_modelb coefficients (no strong diff) 
+model2b <- glm(target_flag~kidsdriv+homekids+parent1+mstatus+education+car_use+tif+car_type+oldclaim+revoked+urbanicity+home_val+job+travtime+I(travtime^2)+mvr_pts+I(mvr_pts^2)+I(mvr_pts^3)+sqrt_yoj+clm_freq+I(clm_freq^2)+I(clm_freq^3)+log_bluebook+sqrt_income,family='binomial',model2b_df)
 
-c_base<-coef(base_model)%>%as.list() # convert to list to remove yoj
+model2b_aki<-step(model2b, trace=0) 
 
-c_base<-c_base%>% purrr::list_modify("yoj" = NULL)
+summary(model2b_aki)
 
-c_base%<>%as.double() #convert back to double-precision vector
+#additional metrics
 
-delta.coef<-abs((coef(trans_df_var)-c_base)/c_base)
 
-round(delta.coef,3)
+model2b_df$predicted<-predict(model2b_aki, type='response')
 
-#partial likelihood ratio test to compare fit of the two models (no diff)
+model2b_df%<>%
+  mutate(predicted_obs = case_when(
+        predicted >= 0.5 ~ 1,
+        predicted < 0.5 ~ 0))
 
-lrtest(base_model, trans_df_var)
+model2b_df$predicted_obs<-as.factor(model2b_df$predicted_obs)
+model2b_df$target_flag<-as.factor(model2b_df$target_flag)
 
-#Anova to compare fit (none found)
+#confusion matrix
 
-anova(base_model, trans_df_var, test='Chisq')
+(model2b_cm<-confusionMatrix(data = model2b_df$predicted_obs, reference = model2b_df$target_flag))
+
+# interaction results
+
+(model2b_metrics <- tibble(model = "transformation Model 2b: base variables",
+                  predictors = length(coef(model2b_aki))-1,
+                  precision = model2b_cm$byClass[5],
+                  auc = auc(roc(response = as.numeric(model2b_df$target_flag),
+                                predictor = as.numeric(model2b_df$predicted)))[1],
+                  AIC = model2b_aki$aic, BIC = BIC(model2b_aki)))
+
+#roc curve with AUC
+
+par(pty='s')
+
+proc<- roc(response=model2b_df$target_flag, predictor=model2b_df$predicted, plot=TRUE, legacy.axes=TRUE, auc.polygon=TRUE, col='blue', main = 'PROC ROC Curve', max.auc.polygon=TRUE, print.auc=TRUE)
+
+#review marginal plots
+
+model2b_marg<-mmps(model2b_aki,main=NULL)
+```
+
+***check std residuals on model2b***
+
+Still seeing autocorrelation
+
+
+```{r fig.height=10, fig.width=15}
+
+res2b_chk<-model2b_df%>%mutate('residuals' = residuals(model2b_aki), linpred = predict(model2b_aki))
+
+bins<- group_by(res2b_chk, cut(linpred, breaks=unique(quantile(linpred, (1:100)/101))))
+
+diag<-summarize(bins, residuals=mean(residuals), linpred = mean(linpred))
+
+plot(residuals~linpred, diag, xlab = "linear predictor")
 
 ```
 
