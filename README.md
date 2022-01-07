@@ -9,4 +9,4 @@ Key outcomes:
 Work-to-date:
 
 * logistic regression models near completion
-* Zero inflation poisson model under-development 
+* linear model under-development 
