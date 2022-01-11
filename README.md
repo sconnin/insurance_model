@@ -17,3 +17,8 @@ Work-to-do:
 * Part 1. final code review and documentation
 * Part 1. data report, formatting, and publication
 * Part 2.
+
+
+insurance_model.Rmd = code for constructing part 1 models and report
+insurance_dataset.csv = raw data
+base_df.csv = processed data used for model development - Part 1
