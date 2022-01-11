@@ -4,9 +4,16 @@ Predictive models for insurance risk analysis.
 Key outcomes:
 
 * Classification model to identify customer who pose auto insurance risk vs those who represent a low-risk ROI.
-* GLM model to forecast estimated claim costs associated with high-risk customers
+* Part 1 - logistic classifiers using tidyverse and caret
+* Part 2. - machine learning classifiers using tidymodels
 
 Work-to-date:
 
-* logistic regression models near completion
-* linear model under-development 
+* data preprocessing
+* Part 1. logistic regression models completed
+
+Work-to-do:
+
+* Part 1. final code review and documentation
+* Part 1. data report, formatting, and publication
+* Part 2.
