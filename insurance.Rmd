@@ -1,5 +1,6 @@
 ---
 title: "Insurance Classification and Prediction"
+date: "1/11/22"
 author: "Sean Connin"
 output:
   html_document: 
@@ -21,9 +22,18 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
 
 ```
-### Project Description
+##Project Description##
 
 The purpose of this work is to estimate the probability that an individual (seeking auto insurance) will be in an accident and then estimate the potential cost of that claim. A synthetic data set of ~ 8000 observations will be used to construct predictive models for this purpose. The use of synthetic data permits model development absent proprietary information. It also provides a heuristic for quantitative reasoning and decision-making.
+
+A logistic classifier binary target variable (target_flag) 
+
+
+dataset includes a class membership score for the target variable (target_flag), where 1 = Yes (confirmed crash) and 0 = No
+
+scores for each observation (an individua1) 
+
+For these purposes, t 
 
 The data include the following variables: 
 
@@ -59,52 +69,57 @@ The data include the following variables:
 
 ```{r}
 
+# Import libraries
+
 library(tidyverse)
 library(janitor)
 library(magrittr)
 library(flextable)
 library(dlookr) # eda
-library(mice)
+#library(mice)
+library(patchwork) # easy plot layout
 library(ggpubr) # creates a wrapper for plotting a list
-library(viridis)
+#library(viridis)
 library(broom) # creates a tidy data frame from statistical test results
-#library(pscl)
+
 
 library(InformationValue) # optimize threshold
-library(MASS) #partial likelihood test for model fit comparisons
+#library(MASS) #partial likelihood test for model fit comparisons
 library(caret) # conf matrix
 library(ROCR) #roc curve
-library(corrplot)
+#library(corrplot)
 library(car)
 #library(logistf)
 ```
 
 ```{r}
 
-# read in data
+# Read in data
 
 path <- "https://raw.githubusercontent.com/sconnin/insurance_model/main/insurance_dataset.csv"
 
 raw <- read_csv(path)
 
 ```
+##1. Data Processing##
 
+**1a. Clean and Reformat Data**
 
-### Data Preparation
+This step includes:
 
-The step includes:
-
-* creating a copy dataframe (df)
-* basic cleaning operations
-* conversion of variables to numeric type as appropriate
-* conversion of character variables to factor in preparation for modeling
-* releveling of select factor variables
-* removal of any empty rows/cols or duplicate rows 
-* removal of the index column for simplicity
+* Creating a copy dataframe (df)
+* Basic cleaning operations
+* Conversion of variables to numeric type as appropriate
+* Conversion of character variables to factor in preparation for modeling
+* Releveling of select factor variables
+* Removal of any empty rows/cols or duplicate rows 
+* Removal of the index column for simplicity
 
 Review of the dataframe structure confirms these changes
 
 ```{r}
+
+# Copy data into working dataframe for downstream use
 
 df<-raw%>%
     
@@ -140,7 +155,7 @@ str(df) # review structure of data set
 
 ```
 
-### Variable distributions and frequency
+**1b. Tabulate Count and Frequency of Target Variable**
 
 Recall that the variable target_flag indicates whether or not an automobile was in an
 accident (0 = No, 1 = Yes).
@@ -149,12 +164,10 @@ accident (0 = No, 1 = Yes).
 
 * target_flag (level = 1) includes 2153 observations and accounts for ~26% of the data. 
 
-Note that while the levels are unbalanced, the relative frequency of target_flag = 1
-is well above that indicative of a rare event. 
 
 ```{r}
 
-# subset levels of target_flag into new dataframes for analyses
+# Subset levels of target_flag into new dataframes for analyses
 
 target_0 <- df%>%
     dplyr::select(-target_amt)%>%
@@ -164,25 +177,25 @@ target_1 <- df%>%
     dplyr::select(-target_amt)%>%
     filter(target_flag == 1)  # obs associated with automobile accidents
 
-# calculate the proportion of data in each subset of target_flag
+# Calculate the proportion of data in each subset of target_flag
 
 df %>%
     group_by(target_flag) %>%
     summarise(n = n()) %>%
     mutate(freq = n / sum(n))%>%
-    flextable()
+    flextable()%>%
+    set_caption("Count and Frequency of Target Levels")
 
 ```
-
+**1c. Summary Statistics for Numerical and Categorical Variables**
 
 There is one negative value (-3) for car_age that should be investigated.This may be 
 a data entry error.
 
 
-
 ```{r}
 
-# calculate basic univariate summaries (numeric variables) for each subset of target_flag    
+# Calculate statistics summary for numeric variables at each level of target_flag    
 
 target_0%>%
     dplyr::select(-target_flag)%>%
@@ -198,21 +211,19 @@ target_1%>%
     flextable()%>%
     set_caption("Summary Statistics for Target_Flag = 1")
 
-#calculate percentage of zero values in numerical covariates for each level of target_flag
+#Calculate percentage of zero values in numerical covariates for each level of target_flag
 
 select_col<- as_mapper(~all(is.na(.)|.< 1)) # purrr mapper for possible downstream use
 
-# note target_flag must be numerical type for the following to run
-
 df%>%
-    group_by(target_flag)%>%
+    group_by(target_flag)%>%  # note target must be numerical type for the following to run
     dplyr::select(where(is.numeric) & -target_amt)%>%
     summarise_each(~round(sum(.==0)/length(.)*100))%>%
     purrr::discard(select_col)%>%
     flextable()%>%
     set_caption("Percentage of Zeros in Covariates by Level of Target_Flag")
 
-# calculate basic univariate summaries (categorical variables) for each subset of target_flag 
+# Create statistical summaries for categorical variables at each level of target_flag 
 
 target_0%>%
     diagnose_category()%>%
@@ -231,13 +242,14 @@ Correct obvious data entry error in working dataframe
 
 ```{r}
 
+# Drop observation with data error for car age (obs. value = -3). 
+
 df$car_age[df$car_age < 0] <- NA
 
 
 ```
 
-
-Assess skewness and normality
+**1d. Covariate Distributions**
 
 skewed data - target_flag, kidsdriv, homekids, yoj, income, oldclaim, clm_freq, 
 mvr_pts"
@@ -245,7 +257,7 @@ mvr_pts"
 
 ```{r}
 
-# evaluate and rank departures from normality for numerical vars
+# Evaluate and rank departures from normality for numerical vars
 
 df %>%
     as.data.frame()%>%
@@ -254,31 +266,30 @@ df %>%
     filter(p_value <= 0.01) %>%
     arrange(abs(p_value))
 
-#identify skewness in covariates across levels of target_flag
+#Identify skewness in covariates across levels of target_flag
 
 target_0%>%find_skewness(index=FALSE, thres=TRUE) 
 target_1%>%find_skewness(index=FALSE, thres=TRUE)
 
-# identify potential transformations to address skew, this does not resolve high 0 counts
+# Identify potential transformations to address skew, this does not resolve high 0 counts
 
 df%>%
     dplyr::select(age, yoj, income, home_val, travtime, bluebook, tif, oldclaim, car_age)%>%
     plot_normality()
 
 ```
-
-Evaluate outliers
+**1e. Data Outliers**
 
 percentage of outliers > 5%: kidsdriv, homekids, yoj 
 
 ```{r}
 
-# identify percentage of outliers for each covariate across levels of target_flag
-# calc ratio_means = mean val of outliers/total mean    
+# Identify percentage of outliers for each covariate across levels of target_flag
+    
 
 diagnose_outlier(target_0) %>%
     filter(outliers_ratio > 5)%>%
-    mutate(ratio_means= outliers_mean/with_mean)%>%
+    mutate(ratio_means= outliers_mean/with_mean)%>% # mean val of outliers/total mean
     arrange(desc(ratio_means))%>%
     dplyr::select(variables, outliers_ratio, ratio_means)%>%
     flextable()%>%
@@ -293,7 +304,7 @@ diagnose_outlier(target_1) %>%
     set_caption("Outlier Summary: Target_Flag = 1")
 ```
 
-**Missing values**
+**1f. Missing Data**
 
 Our dataset includes missing observations in one categorical variable (job) and six
 numerical variables (car_age, home-val, yoj, income, age). Across the variables the
@@ -303,7 +314,7 @@ address missingness, it may be helpful to assess collinearity among the covariat
 
 ```{r }
 
-#basic missing table
+#Basic missing table
     
 target_0%>%
     diagnose()%>%
@@ -319,28 +330,34 @@ target_1%>%
     arrange(desc(missing_count))%>%
     flextable()
 
-# plot missing data to visualize cumulative percentages and col intersections
+# Plot missing data to visualize cumulative percentages and col intersections
 
-df %>% 
+p1<-df %>% 
   plot_na_pareto(only_na = TRUE)
 
-df%>%
+p2<-df%>%
     plot_na_intersect()  
 
-```
-Impute numerical values 
+#print plots
 
+(p1|p2)
+
+```
+**1g. Impute Missing Values**
+
+Numerical variables
+methods have been preselected based on initial plots.
 Note: imputation method determined through iterative trials
 
 ```{r}
 
-#impute numerical vars using dlookr, methods have been preselected based on initial plots.
+#Impute numerical vars using dlookr
 
 #car_age
 
 car_age<-imputate_na(df, car_age, target_flag, method = "mice", seed = 999)
 
-plot(car_age)+theme_minimal()+theme(legend.position = "top")
+p1<-plot(car_age)+theme_minimal()+theme(legend.position = "top")
 
 summary(car_age)
 
@@ -350,7 +367,7 @@ summary(car_age)
 
 home_val<-imputate_na(df, home_val, target_flag, method = "rpart")
 
-plot(home_val)+theme_minimal()+theme(legend.position = "top")
+p2<-plot(home_val)+theme_minimal()+theme(legend.position = "top")
 
 summary(home_val)
 
@@ -359,7 +376,7 @@ summary(home_val)
 
 yoj<- imputate_na(df, yoj, target_flag, method = "rpart")
 
-plot(yoj)+theme_minimal()+theme(legend.position = "top")
+p3<-plot(yoj)+theme_minimal()+theme(legend.position = "top")
 
 summary(yoj)
 
@@ -367,7 +384,7 @@ summary(yoj)
 
 income<-imputate_na(df, income, target_flag, method = "rpart")
 
-plot(income)+theme_minimal()+theme(legend.position = "top")
+p4<-plot(income)+theme_minimal()+theme(legend.position = "top")
 
 summary(income)
 
@@ -375,7 +392,7 @@ summary(income)
 
 age<-imputate_na(df, age, method = "rpart")
 
-plot(age)+theme_minimal()+theme(legend.position = "top")
+p5<-plot(age)+theme_minimal()+theme(legend.position = "top")
 
 summary(age)
 
@@ -387,9 +404,13 @@ df%<>%dplyr::select(!c(car_age, home_val, yoj, income, age))%>%
 
 df%<>%mutate_if(is.numeric, round)
 
+# print plots
+
+(p1|p2)/(p3|p4)/p5
+
 ```
 
-Impute Categorical Variables - job
+Categorical Variables - job
 
 ```{r}
 
@@ -412,13 +433,13 @@ Save csv with imputed values
 
 ```{r}
 
-df%<>%mutate_at(vars(target_flag), funs(factor)) # convert target_flag to factor
+#df%<>%mutate_at(vars(target_flag), funs(factor)) # convert target_flag to factor
 
-write.csv(df, 'df_clean.csv', row.names=FALSE)
+#write.csv(df, 'df_clean.csv', row.names=FALSE)
 
 ```
 
-**Assess Colinearity: Pairwise Comparisons**
+**1h. Pairwise Comparisons**
 
 Pairwise comparisons provide a method to identify collinear relationships between
 covariates. Variables that display high collinearity (e.g., <> .50) may be redundant 
@@ -441,7 +462,7 @@ less clear cut.
 
 ```{r}
 
-#assess covariance in the absence of zero values in numerical cols
+#Assess collinearity in the absence of zero values in numerical cols
 
 df%>%
     filter_if(is.numeric, all_vars((.) != 0))%>%
@@ -449,39 +470,43 @@ df%>%
     filter(coef_corr > .5 | coef_corr < -.5)%>% # set thresholds to limit output 
     flextable()
 
-# plot relationship between numerical covariates (w/o zero values for clarity) beyond the threshold coef_corr 
+# Plot relationship between numerical covariates (w/o zero values for clarity) beyond the threshold coef_corr 
 
-df %>%
+p1<-df %>%
     filter(income != 0 & home_val != 0)%>% 
     target_by(income) %>%
     relate(home_val) %>%
     plot()
     
 
-df %>%
+p2<-df %>%
     filter(clm_freq != 0 & oldclaim != 0)%>%
     target_by(clm_freq) %>%
     relate(oldclaim) %>%
     plot()
 
-df %>%
+p3<-df %>%
     filter(home_val != 0 & car_age != 0)%>%
     target_by(home_val) %>%
     relate(car_age) %>%
     plot()
 
-# plot relationship between numerical and factors for select vars
+# Plot relationship between numerical and factors for select variables
 
-df %>% 
+p4<-df %>% 
   target_by(income) %>%      
   relate(job) %>% 
   plot()
 
 df%>%kruskal.test(income~job) # assess covariance with Kruskal-Wallis rank sum test where > 1 categorical level
 
+# Print plots
+
+(p1|p2)/(p3|p4)
+
 ```
 
-# Review categorical vars in relation to target
+Categorical variables and target
 
 Note: target_flag needs to be a factor var for mosaic plotting
 
@@ -491,23 +516,25 @@ Findings:
 
 ```{r }
 
+# Subset categorical variables
+
 df_factor<-df%>%
     dplyr::select(where(is.factor))
 
 target <- all_of(names(df_factor)[1]) # set name for target_flag
 covariates <- all_of(names(df_factor)[2:11]) # set names for factor covariates
 
-#create mosaic plots
+#Create mosaic plots
 
 
 (plots<-covariates%>%map(function(covariates) df%>%target_by(target)%>%relate(covariates)%>%plot()))
 
 ```
-# Review numerical vars in relation to target
+Numeric variables and target
 
 ```{r}
 
-str(df)
+# Subset numerical variables
 
 num_box<-select_if(df, is.numeric)%>%
     dplyr::select(-target_amt)
@@ -515,6 +542,8 @@ num_box<-select_if(df, is.numeric)%>%
 num_box<-cbind(df$target_flag, num_box)%>%
     rename(target_flag = 'df$target_flag')
 
+
+# Plot using boxplots
 
 response = names(num_box)[1] #target_flag
 response = purrr::set_names(response)
@@ -531,14 +560,13 @@ box_fun = function(x) {
     theme_classic()
 }
 
-b_plots<-map(explain, ~box_fun(.x)) #creates a list of plots
+b_plots<-map(explain, ~box_fun(.x)) #creates a list of plots using purrr
 
-ggarrange(plotlist=b_plots, height = .5, ncol = 3)
+ggarrange(plotlist=b_plots, height = .5, ncol = 3) # layout plots
 
 
 ```
-Make final variable selections -> create base_df for modeling
-
+**1i. Final Variable Selections**
 
 ```{r}
 
@@ -550,16 +578,19 @@ base_df%<>%
                  not_white_collar = c("Student", "Blue Collar", "Home Maker", "Clerical", "Manager"),
                  white_collar = c("Doctor", "Lawyer", "Professional"))))
 
-write.csv(base_df, 'base_df.csv', row.names=FALSE)    
+#write.csv(base_df, 'base_df.csv', row.names=FALSE)    
 ```
-Create training and test dataframes
+
+##2. Training and Test Datasets##
+
+use caret - rebalancing train for model building, test maintains relative freqs
 
 ```{r}
-#base_df<-read.csv('base_df.csv') # hold here to assist model dev 
+# Base_df<-read.csv('base_df.csv') # hold here to assist model dev 
 
 base_df%>%count(target_flag)%>%
     mutate(frequency = n/sum(n))%>%
-    flextable()  #0=6008, 1=2153
+    flextable()  #--- > 0 = 6008, 1 = 2153
 
 ones <- base_df%>%
     filter(target_flag == "1")
@@ -567,7 +598,9 @@ ones <- base_df%>%
 zeros <-base_df%>%
     filter(target_flag =="0")
 
-set.seed(1234)
+set.seed(1234) 
+
+# Build train/test sets; down-sample to re-balance test dataset
 
 input_ones <- sample(1:nrow(ones), 0.7*nrow(ones))
 input_zeros <- sample(1:nrow(zeros), 0.7*nrow(ones))
@@ -582,7 +615,7 @@ test_zeros <- zeros[-input_zeros,]
 
 test_df <- rbind(test_ones, test_zeros)
 
-#check counts and frequencies of target_flag for train set and test set - helpful when comparing to confusion matrix
+#Check counts and frequencies of target_flag for train set and test set 
 
 train_df%>%count(target_flag)%>%
     mutate(frequency = n/sum(n))%>%
@@ -594,9 +627,9 @@ test_df%>%count(target_flag)%>%
 
 ```
 
-##Build Models##
+##3. Build Models##
 
-**Null Model: logistic regression**
+**3a. Null Model: Logistic Regression**
 
 ```{r}
 
@@ -604,35 +637,37 @@ null<-glm(target_flag ~ 1, family = binomial, train_df)
 
 summary(null)
 
+null_stats<-glance(null) # collect stats for model comparisons
+
 ```
 
-
-**Full Model: logistic regression**
+**3b. Full Model: Logistic Regression**
 
 ```{r}
 
-full<-glm(target_flag ~ ., family = binomial, train_df)
+full<-glm(target_flag ~ ., family = binomial, train_df) 
 
 summary(full)
 
+full_stats<-glance(full) # collect stat metrics for model comparisons
+
 ```
-
-
-**Reduced Model: logistic regression **
+**3c. Reduced Model: Logistic Regression **
 
 ```{r}
 
-#build reduced model
-
+#Build reduced model
 
 reduced <- glm(target_flag ~ .,family='binomial', train_df) 
 
-reduced<-step(reduced, trace=0) # use Akiaike step, trace 0 prevents intermediate printing
+reduced<-step(reduced, trace=0) # use Akiaike step for covariate selection, trace 0 prevents intermediate printing
 
 summary(reduced)
 
+reduced_stats<-glance(reduced) # collect stats for model comparisons
+
 ```
-**Diagnostics: reduced model**
+**3c.1. Diagnostics: Reduced Model**
 
 The ROC curve shows the tradeoff between true positive rate and false positive rate across all cutoff values.
 
@@ -640,23 +675,23 @@ Note: InformationValue:confusionMatrix -- wants predicts and obs to be numerical
 
 ```{r}
 
-# collect predicted percentages
+# Collect predicted percentages
 
 predicted<-predict(reduced,reduced_df,type='response')
 
-# find optimal threshold to minimize misclassification
+# Find optimal threshold to minimize misclassification
 
-(optimal<- optimalCutoff(train_df$target_flag, predicted, optimiseFor = "misclasserror"))  # 0.51
+optimal<- optimalCutoff(train_df$target_flag, predicted, optimiseFor = "misclasserror")  # 0.51
 
-# calculate training classification error with .51 threshold --> 0.2595
+# Calculate training classification error with .51 threshold --> 0.2595
 
-misClassError(train_df$target_flag, predicted,  threshold = optimal)
+Miss_Class_Error<-misClassError(train_df$target_flag, predicted,  threshold = optimal)
 
-# convert predicted to 0, 1 values based on threshold
+# Convert predicted to 0, 1 values based on threshold
 
 predicts<-ifelse(predicted >= optimal, 1, 0)
 
-# subset actuals and predicts as numeric for confusion matrix
+# Subset actuals and predicts as numeric for confusion matrix
 
 actuals<-as.numeric(as.character(train_df$target_flag))
 
@@ -664,50 +699,60 @@ actuals<-as.numeric(as.character(train_df$target_flag))
 
 #Calculate related metrics
 
-auc<-AUROC(actuals, predicted) # -->.81
+AUC<-AUROC(actuals, predicted) # -->.81
 
-InformationValue::sensitivity(actuals, predicts, threshold = optimal) # recall: true positive rate
-InformationValue::specificity(actuals, predicts, threshold = optimal) #false positive rate
-InformationValue::precision(actuals, predicts, threshold = optimal) # prop of predicted ones /prop total ones
+Sensitivity<-InformationValue::sensitivity(actuals, predicts, threshold = optimal) # recall: true positive rate
+Specificity<-InformationValue::specificity(actuals, predicts, threshold = optimal) #false positive rate
+Preciaion<-InformationValue::precision(actuals, predicts, threshold = optimal) # prop of predicted ones /prop total ones
 
-youdensIndex(actuals, predicts, threshold = optimal) # 0.48 accounts for both false-positive and false-negative rates
+YDI_Index<- youdensIndex(actuals, predicts, threshold = optimal) # 0.48 accounts for both false-positive and false-negative rates
 
-Concordance(actuals, predicts) # predictive power  ---> .548
+# Assess predictive power using concordance
 
-ks_plot(actuals, predicts) #cum perc of ones captured by the model against that expected random
+Predict_Power<-Concordance(actuals, predicts) # predictive power  ---> .548
+Predict_Power<-Concord$Concordance
+
+p1<-ks_plot(actuals, predicts) #cum perc of ones captured by the model against that expected random
 
 ks_stat(actuals, predicts) #Kolmogorov-Smirnov statistic - maximum difference between the cumulative true positive and cumulative false positive rate
+
+# Create a metrics table
+
+reduced_metrics<-cbind(Predict_Power, Miss_Class_Error, AUC, Sensitivity, Specificity, Precision, YDI_Index, Kol_Smirnov)
 
 # Construct ROC curve: note actuals, predicts, predicted as vectors)
 
 pred <- ROCR::prediction(predicted, actuals)
 perf <- ROCR::performance(pred, "tpr", "fpr")
-plot(perf, colorize = TRUE, main = "ROC curve for logistic regression on insurance data")
+
+p2<-plot(perf, colorize = TRUE, main = "ROC curve for logistic regression on insurance data")
 
 #AUC curve
 
-plotROC(actual, predicted)
+p3<-plotROC(actual, predicted)
+
+(p1|p2|p3)
 
 ```
 
-***Reduced Model: Assess  overdispersion***
+**3c.2. Reduced Model: Overdispersion**
 
 - we are within tolerable levels of dispersion
 
 ```{r}
 
-# evaluate using deviance and quasibinomial comparison
+# Evaluate using deviance and quasibinomial comparison
 
 deviance(reduced)/df.residual(reduced) # if considerably greater than one we should be concerned
 
-# dble check with two model fit
+# Check with two model fit
 
 quasi_model <-  glm(target_flag ~ .,family='quasibinomial', base_df) # note: using base_df
   
 pchisq(summary(quasi_model)$dispersion * reduced$df.residual,
  reduced$df.residual, lower = F)  
 ```
-***Reduced: Check linearity of numerical vars vs. logit***
+**3c.3. Reduced: Check linearity of numerical vars vs. logit***
 
 Linearity is questionable for yoj, oldclaim
 
@@ -726,19 +771,25 @@ reduced_df%<>%mutate(logit = log(predicted/(1-predicted))) # add logit
 
 # check linearity btwn numerical predictors and logit
 
-with(reduced_df, scatter.smooth(travtime, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(tif, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(mvr_pts, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(income, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(homekids, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(oldclaim, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(clm_freq, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(bluebook, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+p1<-with(reduced_df, scatter.smooth(travtime, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+p2<-with(reduced_df, scatter.smooth(tif, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+p3<-with(reduced_df, scatter.smooth(mvr_pts, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+p4<-with(reduced_df, scatter.smooth(income, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+p5<-with(reduced_df, scatter.smooth(homekids, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+p6<-with(reduced_df, scatter.smooth(oldclaim, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+p7<-with(reduced_df, scatter.smooth(clm_freq, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+p8<-with(reduced_df, scatter.smooth(bluebook, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
+
+#Print Plots
+
+(p1|p2|p3) /
+(p4|p5|p6) /
+(p7|p8)
 
 
 ```
 
-#Reduced Model: evaluate outliers and infuential obs
+**3c.4. Reduced Model: Outliers and Infuential obs**
 
 computes the standardized residuals (.std.resid) and the Cook’s distance (.cooksd) using the R function augment() [broom package]
 
@@ -758,15 +809,15 @@ There are no obs has std residual beyond 3 stdev: 5101
 reduced$data <- augment(reduced) %>% 
   mutate(index = 1:n()) 
 
-#top 10 largest values
+# Identify Outliers
 
 reduced$data %>% top_n(10, .cooksd)
 
-plot(reduced, which = 4, id.n = 3)  # keep an eye on obs > 4/n 
+p1<-plot(reduced, which = 4, id.n = 3)  # keep an eye on obs > 4/n 
 
-#plot std residuals
+#Plot Standardized Residuals
 
-ggplot(reduced$data, aes(index, .std.resid)) + 
+p2<-ggplot(reduced$data, aes(index, .std.resid)) + 
   geom_point(aes(color = target_flag), alpha = .5) +
   theme_bw()
 
@@ -774,8 +825,12 @@ ggplot(reduced$data, aes(index, .std.resid)) +
 
 reduced$data %>% 
   filter(abs(.std.resid) > 3)
+
+#Print plots
+
+(p1|p2)
 ```
-***Model 1 Assess multicollinearity***
+**3c.5. Reduced Model: Collinearity**
 
 Findings: no problems with collinearity
 
@@ -784,7 +839,7 @@ Findings: no problems with collinearity
 car::vif(reduced)
 ```
 
-***Reduced Model: check std residuals for independence: resids vs. logit ***
+**3c.6. Reduced Model: Independence of Residuals**
 
 We see some possible pattern (curvature) that might indicate misclassification but its unclear 
 
@@ -800,20 +855,13 @@ plot(residuals~linpred, diag, xlab = "linear predictor")
 
 
 ```
-**Transfomed Model**
-
-
-reduced model = target_flag ~ kidsdriv + parent1 + mstatus + education + 
-    travtime + car_use + bluebook + tif + car_type + oldclaim + 
-    clm_freq + revoked + mvr_pts + urbanicity + income + age
-
-We will log transform income, tif, bluebook, travtime oldclaim
+**3d. Transfomed Model**
 
 
 ```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
 
 
-#build model with transformed vars
+#Build model with transformed vars
 
 trans <- glm( target_flag ~ kidsdriv + parent1 + mstatus + education + 
     log(travtime) + car_use + log(bluebook) + sqrt(tif) + car_type + (oldclaim) + 
@@ -823,9 +871,11 @@ trans<-step(trans, trace=0)
 
 summary(trans)
 
+trans_stats<-glance(trans) # save stats for model comparisons
+
 
 ```
-**Transformed Model: diagnostics **
+**3d.1 Transformed Model: Diagnostics **
 
 ```{r}
 
@@ -839,7 +889,7 @@ trans_predicted<-predict(trans,train_df,type='response')
 
 # calculate training classification error with .51 threshold --> 0.2588
 
-misClassError(train_df$target_flag, trans_predicted,  threshold = trans_optimal)
+Miss_Class_Error<-misClassError(train_df$target_flag, trans_predicted,  threshold = trans_optimal)
 
 # convert predicted to 0, 1 values based on threshold
 
@@ -849,35 +899,146 @@ trans_predicts<-ifelse(trans_predicted >= trans_optimal, 1, 0)
 
 trans_actuals<-as.numeric(as.character(optimum_df$target_flag))
 
-(InformationValue::confusionMatrix(actuals, predicts, threshold = optimal)) 
+(InformationValue::confusionMatrix(actuals, predicts, threshold = optimal))
 
 #Calculate related metrics
 
-auc<-AUROC(trans_actuals, trans_predicted) # -->.81
-InformationValue::sensitivity(actuals, predicts, threshold = optimal) # recall: true positive rate
-InformationValue::specificity(actuals, predicts, threshold = optimal) #false positive rate
-InformationValue::precision(actuals, predicts, threshold = optimal) # prop of predicted ones /prop total ones
-youdensIndex(actuals, predicts, threshold = optimal) # 0.48 accounts for both false-positive and false-negative rates
+AUC<-AUROC(trans_actuals, trans_predicted) # -->.81
+Sensitivity<-InformationValue::sensitivity(actuals, predicts, threshold = optimal) # recall: true positive rate
+Specificity<-InformationValue::specificity(actuals, predicts, threshold = optimal) #false positive rate
+Precision<-InformationValue::precision(actuals, predicts, threshold = optimal) # prop of predicted ones /prop total ones
+YDI_Index<-youdensIndex(actuals, predicts, threshold = optimal) # 0.48 accounts for both false-positive and false-negative rates
 
-Concordance(actuals, predicts) # predictive power  ---> .548
+# Calculate predictive power using concordance
 
-ks_plot(actuals, predicts) #cum perc of ones captured by the model against that expected random
+Concord<-Concordance(actuals, predicts)
+Predict_Power<-Concord$Concordance
 
-ks_stat(actuals, predicts) #Kolmogorov-Smirnov statistic - maximum difference between the cumulative true positive and cumulative false positive rate
+p1<-ks_plot(actuals, predicts) #cum perc of ones captured by the model against that expected random
+
+Kol_Smirnov<-ks_stat(actuals, predicts) #Kolmogorov-Smirnov statistic - maximum difference between the cumulative true positive and cumulative false positive rate
+
+# Create a metrics table
+
+trans_metrics<-cbind(Predict_Power, Miss_Class_Error, AUC, Sensitivity, Specificity, Precision, YDI_Index, Kol_Smirnov)
 
 # Construct ROC curve: note actuals, predicts, predicted as vectors)
 
 pred <- ROCR::prediction(predicted, actuals)
 perf <- ROCR::performance(pred, "tpr", "fpr")
-plot(perf, colorize = TRUE, main = "ROC curve for logistic regression on insurance data")
+
+p2<-plot(perf, colorize = TRUE, main = "ROC curve for logistic regression on insurance data")
 
 #AUC curve
 
-plotROC(actual, predicted)
+p3<-plotROC(actual, predicted)
+```
+##4. Model Selection##
+
+```{r}
+
+# Compare model output summaries
+
+col_name<-c('Null Model', 'Full Model', 'Reduced Model', 'Transformed Model')
+
+comp<-rbind(null_stats, full_stats, reduced_stats, trans_stats)
+
+(compare_models<- cbind(col_name, comp)%>%
+    dplyr::select(-c(null.deviance, df.null))%>%
+    rename(Model = col_name)%>%
+    flextable()%>%
+     set_caption("Comparison of Model Results"))
+
+# Compare select metrics for reduced and transformed models
+
+col_final<-c('Reduced Model', 'Transformed Model')
+
+final_comp<-rbind(reduced_metrics, trans_metrics)
+
+(final_models<- cbind(col_final, final_comp)%>%
+    as.data.frame()%>%
+    mutate_at(vars(2:9), funs(as.numeric))%>%
+    mutate_if(is.numeric, round, 3)%>%
+    rename(Model = col_final)%>%
+    flextable()%>%
+    set_caption("Classification Metrics: Reduced & Transformed Models"))
 ```
 
+##5. Model Evaluation##
 
+```{r}
 
+# Apply reduced model to test data
 
+reduced_test<-glm(formula = target_flag ~ kidsdriv + parent1 + mstatus + 
+    education+travtime + car_use + bluebook + tif + car_type + oldclaim + 
+    clm_freq + revoked + mvr_pts + urbanicity + income + age, 
+    family = "binomial", data = test_df)
 
+# Apply fitted model to test sample (predicted probabilities)
 
+predicted_test <- predict(reduced_test, test_df, type="response")
+
+# Find optimal threshold to minimize misclassification
+
+(test_optimal<- optimalCutoff(test_df$target_flag, predicted_test, optimiseFor = "Both"))
+
+# Calculate training classification error with .51 threshold
+
+Miss_Class_Error<-misClassError(test_df$target_flag, predicted_test,  threshold = test_optimal)
+
+# Convert predicted to 0, 1 values based on threshold
+
+predicts_test<-ifelse(predicted_test >= test_optimal, 1, 0)
+
+# Cubset actuals and predicts as numeric for confusion matrix
+
+actuals_test<-as.numeric(as.character(test_df$target_flag))
+
+(InformationValue::confusionMatrix(actuals_test, predicts_test, threshold = test_optimal))
+
+#Calculate related metrics
+
+AUC<-AUROC(actuals_test, predicted_test) # -->.81
+Sensitivity<-InformationValue::sensitivity(actuals_test, predicts_test, threshold = .17) # recall: true positive rate
+Specificity<-InformationValue::specificity(actuals_test, predicts_test, threshold = .17) #false positive rate
+Precision<-InformationValue::precision(actuals_test, predicts_test, threshold = .17) # prop of predicted ones /prop total ones
+YDI_Index<-youdensIndex(actuals_test, predicts_test, threshold = test_optimal) # 0.48 accounts for both false-positive and false-negative rates
+
+# Calculate predictive power using concordance
+
+Concord<-Concordance(actuals_test, predicts_test)
+Predict_Power<-Concord$Concordance
+
+p1<-ks_plot(actuals_test, predicts_test) #cum perc of ones captured by the model against that expected random
+
+Kol_Smirnov<-ks_stat(actuals_test, predicts_test) #Kolmogorov-Smirnov statistic - maximum difference between the cumulative true positive and cumulative false positive rate
+
+# Create a metrics table
+
+(test_metrics<-cbind(Predict_Power, Miss_Class_Error, AUC, Sensitivity, Specificity, Precision, YDI_Index, Kol_Smirnov)%>%
+    as.data.frame()%>%
+    mutate_at(vars(1:8), funs(as.numeric))%>%
+    mutate_if(is.numeric, round, 3)%>%
+    flextable()%>%
+    set_caption("Reduced Model-Test Data: Metrics"))
+    
+
+# Construct ROC curve: note actuals, predicts, predicted as vectors)
+
+pred <- ROCR::prediction(predicted_test, actuals_test)
+perf <- ROCR::performance(pred, "tpr", "fpr")
+
+p2<-plot(perf, colorize = TRUE, main = "ROC curve for logistic regression on insurance data")
+
+#Construct AUC curve
+
+p3<-plotROC(actuals_test, predicted_test)
+
+# Print plots
+
+(p1|p2|P3)
+```
+##6. Summary##
+
+To be completed
