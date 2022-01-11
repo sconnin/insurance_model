@@ -1,3 +1,4 @@
+
 ---
 title: "Insurance Classification and Prediction"
 date: "1/11/22"
@@ -233,10 +234,6 @@ target_1%>%
     diagnose_category()%>%
     flextable(theme_fun = theme_booktabs())
 
-
-
-
-
 ```
 Correct obvious data entry error in working dataframe
 
@@ -245,7 +242,6 @@ Correct obvious data entry error in working dataframe
 # Drop observation with data error for car age (obs. value = -3). 
 
 df$car_age[df$car_age < 0] <- NA
-
 
 ```
 
