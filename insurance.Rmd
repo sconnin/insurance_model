@@ -523,6 +523,7 @@ predictors <- all_of(names(mosaic)[2:11])
 
 
 
+
 ```
 Numeric variables and target
 
@@ -553,9 +554,7 @@ box_fun = function(x) {
 
 box_plots<-map(explain, ~box_fun(.x)) #creates a list of plots using purrr
 
-ggarrange(plotlist=box_plots, height = .5, ncol = 3) # layout plots
-
-
+plot(reduce(box_plots,`+`)) # layout with patchwork
 ```
 **1.9 Final Variable Selections**
 
@@ -880,7 +879,7 @@ trans_predicted<-predict(trans, train_df,type='response')
 
 # find optimal threshold to minimize misclassification
 
-(trans_optimal<- optimalCutoff(train_df$target_flag, trans_predicted, optimiseFor = "misclasserror"))  # 0.51
+trans_optimal<- optimalCutoff(train_df$target_flag, trans_predicted, optimiseFor = "misclasserror")  # 0.51
 
 # calculate training classification error with .51 threshold --> 0.2588
 
@@ -894,7 +893,7 @@ trans_predicts<-ifelse(trans_predicted >= trans_optimal, 1, 0)
 
 trans_actuals<-as.numeric(as.character(train_df$target_flag))
 
-(InformationValue::confusionMatrix(trans_actuals, trans_predicts, threshold = optimal))
+InformationValue::confusionMatrix(trans_actuals, trans_predicts, threshold = optimal)%>%flextable()
 
 #Calculate related metrics
 
@@ -909,7 +908,7 @@ YDI_Index<-youdensIndex(trans_actuals, trans_predicts, threshold = optimal) # 0.
 Concord<-Concordance(trans_actuals, trans_predicts)
 Predict_Power<-Concord$Concordance
 
-p1<-ks_plot(trans_actuals, trans_predicts) #cum perc of ones captured by the model against that expected random
+ks_plot(trans_actuals, trans_predicts) #cum perc of ones captured by the model against that expected random
 
 Kol_Smirnov<-ks_stat(trans_actuals, trans_predicts) #Kolmogorov-Smirnov statistic - maximum difference between the cumulative true positive and cumulative false positive rate
 
@@ -985,7 +984,7 @@ predicted_test <- predict(reduced_test, test_df, type="response")
 
 # Find optimal threshold to minimize misclassification
 
-(test_optimal<- optimalCutoff(test_df$target_flag, predicted_test, optimiseFor = "Both"))
+test_optimal<- optimalCutoff(test_df$target_flag, predicted_test, optimiseFor = "Both") # --> .149
 
 # Calculate training classification error with .51 threshold
 
@@ -999,7 +998,7 @@ predicts_test<-ifelse(predicted_test >= test_optimal, 1, 0)
 
 actuals_test<-as.numeric(as.character(test_df$target_flag))
 
-(InformationValue::confusionMatrix(actuals_test, predicts_test, threshold = test_optimal))
+InformationValue::confusionMatrix(actuals_test, predicts_test, threshold = test_optimal)%>%flextable()
 
 #Calculate related metrics
 
