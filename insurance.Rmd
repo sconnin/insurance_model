@@ -215,17 +215,19 @@ df%>%
     summarise_each(~round(sum(.==0)/length(.)*100))%>%
     purrr::discard(select_col)%>%
     flextable()%>%
-    set_caption("Percentage of Zeros in Covariates by Level of Target_Flag")
+    set_caption("Percentage of Zeros in Numerical Covariates by Level of Target_Flag")
 
 # Create statistical summaries for categorical variables at each level of target_flag 
 
 target_0%>%
     diagnose_category()%>%
-    flextable(theme_fun = theme_booktabs())
+    flextable()%>%
+    set_caption("Summary Statistics for Categorical Variables: Target Level = 0")
 
 target_1%>%
     diagnose_category()%>%
-    flextable(theme_fun = theme_booktabs())
+    flextable()%>%
+    set_caption("Summary Statistics for Categorical Variables: Target Level = 1")
 
 
 
@@ -315,26 +317,28 @@ target_0%>%
     dplyr::select(-unique_count, -unique_rate)%>%
     filter(missing_count>0)%>%
     arrange(desc(missing_count))%>%
-    flextable()
+    flextable()%>%
+    set_caption("Missing Data Summary: Target Level = 0")
+    
 
 target_1%>%
     diagnose()%>%
     dplyr::select(-unique_count, -unique_rate)%>%
     filter(missing_count>0)%>%
     arrange(desc(missing_count))%>%
-    flextable()
+    flextable()%>%
+    set_caption("Missing Data Summary: Target Level = 1")
+    
 
 # Plot missing data to visualize cumulative percentages and col intersections
 
-p1<-df %>% 
+df %>% 
   plot_na_pareto(only_na = TRUE)
 
-p2<-df%>%
+df %>%
     plot_na_intersect()  
 
-#print plots
 
-(p1|p2)
 
 ```
 **1.7 Impute Missing Values**
@@ -463,7 +467,8 @@ df%>%
     filter_if(is.numeric, all_vars((.) != 0))%>%
     correlate()%>%
     filter(coef_corr > .5 | coef_corr < -.5)%>% # set thresholds to limit output 
-    flextable()
+    flextable()%>%
+    set_caption("Pairwise Correlation: Numerical Covariates")
 
 # Plot relationship between numerical covariates (w/o zero values for clarity) beyond the threshold coef_corr 
 
@@ -580,7 +585,8 @@ use caret - rebalancing train for model building, test maintains relative freqs
 
 base_df%>%count(target_flag)%>%
     mutate(frequency = n/sum(n))%>%
-    flextable()  #--- > 0 = 6008, 1 = 2153
+    flextable()%>%  #--- > 0 = 6008, 1 = 2153
+    set_caption("Count and Frequency of Target Variable by Level")
 
 ones <- base_df%>%
     filter(target_flag == "1")
@@ -609,11 +615,13 @@ test_df <- rbind(test_ones, test_zeros)
 
 train_df%>%count(target_flag)%>%
     mutate(frequency = n/sum(n))%>%
-    flextable()
+    flextable()%>%
+    set_caption("Count and Frequency of Target Variable: Training Data")
 
 test_df%>%count(target_flag)%>%
     mutate(frequency = n/sum(n))%>%
-    flextable()
+    flextable()%>%
+    set_caption("Count and Frequency of Target Variable: Test Data")
 
 ```
 
@@ -849,8 +857,7 @@ plot(residuals~linpred, diag, xlab = "linear predictor")
 marginals_reduced<-mmps(reduced,main=NULL)
 ```
 
-
-**3.4 Transfomed Model**
+**3.4 Transformation Model**
 
 ```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
 
@@ -869,7 +876,7 @@ trans_stats<-glance(trans) # save stats for model comparisons
 
 
 ```
-**3.4.1 Transformed Model: Diagnostics **
+**3.4.1 Transformation Model: Diagnostics **
 
 ```{r}
 
@@ -893,7 +900,9 @@ trans_predicts<-ifelse(trans_predicted >= trans_optimal, 1, 0)
 
 trans_actuals<-as.numeric(as.character(train_df$target_flag))
 
-InformationValue::confusionMatrix(trans_actuals, trans_predicts, threshold = optimal)%>%flextable()
+InformationValue::confusionMatrix(trans_actuals, trans_predicts, threshold = optimal)%>%
+    flextable()%>%
+    set_caption("Confusion Matrix: Reduced Model")
 
 #Calculate related metrics
 
@@ -998,7 +1007,9 @@ predicts_test<-ifelse(predicted_test >= test_optimal, 1, 0)
 
 actuals_test<-as.numeric(as.character(test_df$target_flag))
 
-InformationValue::confusionMatrix(actuals_test, predicts_test, threshold = test_optimal)%>%flextable()
+InformationValue::confusionMatrix(actuals_test, predicts_test, threshold = test_optimal)%>%
+    flextable()%>%
+    set_caption("Confusion Matrix: Transformation Model")
 
 #Calculate related metrics
 
