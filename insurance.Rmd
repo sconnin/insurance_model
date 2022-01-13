@@ -24,19 +24,13 @@ knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
 ```
 ##Project Description##
 
-The purpose of this work is to estimate the probability that an individual (seeking auto insurance) will be in an accident and then estimate the potential cost of that claim. A synthetic data set of ~ 8000 observations will be used to construct predictive models for this purpose. The use of synthetic data permits model development absent proprietary information. It also provides a heuristic for quantitative reasoning and decision-making.
+The purpose of this work is to estimate the probability that an individual (seeking auto insurance) will be in an accident and then to forecast the potential cost of an ensuing claim. A synthetic data set of ~ 8000 observations will be used to construct predictive models for this purpose. The use of synthetic data permits model development absent proprietary information, while also providing a heuristic for quantitative reasoning.
 
-A logistic classifier binary target variable (target_flag) 
+The dataset includes two response variables. The first, 'target_flag', is scored as either a 1 or 0 indicating that an individual has or has not been in an accident, respectively. On this basis, a score of 1 is considered a 'positive' result and 0 a 'negative' result. The second response variable, 'target_amt' refers to the amount paid on a individual's claim given an accident occurred. Target_amt is a numerical variable ranging from $0 (no accident/claims) upward.   
 
-
-dataset includes a class membership score for the target variable (target_flag), where 1 = Yes (confirmed crash) and 0 = No
-
-scores for each observation (an individua1) 
-
-For these purposes, t 
+A binary logistic classification model will be constructed to estimate the probability of class membership (1 or 0) and a multiple linear regression model to predict payout cost in the event of an accident. This statistical approach builds on classical methods for model training/testing (which underlie more modern, machine learning, strategies for classification and prediction) and permits more explicit consideration of model assumptions and diagnostics. 
 
 The data include the following variables: 
-
 
 | Variable             | Description                                  |
 |----------------------|----------------------------------------------|
@@ -66,6 +60,17 @@ The data include the following variables:
 | URBANICITY           | Home/work area                               |
 | YOJ                  | Years on job                                 |
 
+The project workflow will be represented and discussed following the approach of
+[Wickham and Grolemund (2017)](https://r4ds.had.co.nz/):
+
+! [Alt text] (/Users/seanc/Documents/Data_Projects/insurance_model/images/tidymodel.jpg)
+
+- Import: libraries, raw data
+- Tidy: cleaning, wrangling, tidy format
+- Transform: type, relevel, summary statistics 
+- Visualize: exploratory, diagnostic
+- Model: model building, diagnostics, selection, evaluation
+- Communicate: project summary, knitted document, portfolio
 
 ```{r}
 
@@ -99,17 +104,18 @@ raw <- read_csv(path)
 
 **1.1 Clean and Reformat Data**
 
-This step includes:
+Data processing is required to put variables in tidy form for model building as 
+well as to support initial exploration and visualization. Additional steps are 
+taken to facilitate interpretation of feature variables.    
 
-* Creating a copy dataframe (df)
-* Basic cleaning operations
-* Conversion of variables to numeric type as appropriate
-* Conversion of character variables to factor in preparation for modeling
-* Releveling of select factor variables
-* Removal of any empty rows/cols or duplicate rows 
-* Removal of the index column for simplicity
+The following processing steps are included below:
 
-Review of the dataframe structure confirms these changes
+- data storage as dataframe(s)
+- case consistency and removal of special characters
+- type conversion and re-leveling of select factor variables
+- removal of empty/duplictae rows and/or columns
+- subsetting to remove unnecessary columns
+- renaming columns and values for clarity
 
 ```{r}
 
@@ -151,8 +157,8 @@ str(df) # review structure of data set
 
 **1.2 Tabulate Count and Frequency of Target Variable**
 
-Recall that the variable target_flag indicates whether or not an automobile was in an
-accident (0 = No, 1 = Yes).
+Recall that the variable target_flag indicates whether or not an individual was in an
+accident (1 = Yes, 0 = No).
 
 * target_flag (level = 0) includes 6008 observations and accounts for ~74% of the data.
 
@@ -183,8 +189,13 @@ df %>%
 ```
 **1.3 Summary Statistics for Numerical and Categorical Variables**
 
-There is one negative value (-3) for car_age that should be investigated.This may be 
+On the basis of the following statistical summaries we find:
+
+- There is one negative value (-3) for car_age that should be investigated. This may be 
 a data entry error.
+- A number of numerical variables have highly skewed distributions (compare mean & median)
+- A high percentage of zeros occur in variables: kidsdriv, homekids, oldclaim, clm_freq, mvr_pt
+- Outliers are common across the numerical variables, particularly for observations where target_flag = 0.  
 
 
 ```{r}
@@ -234,7 +245,10 @@ target_1%>%
 
 
 ```
-Correct obvious data entry error in working dataframe
+
+We drop one observation where car_age is < 0 given that it is impossible to have
+a negative age. This appears to be a data entry error given there are no other
+negative values in this variable category. 
 
 ```{r}
 
@@ -247,13 +261,14 @@ df$car_age[df$car_age < 0] <- NA
 
 **1.4 Covariate Distributions**
 
-skewed data - target_flag, kidsdriv, homekids, yoj, income, oldclaim, clm_freq, 
-mvr_pts"
+Histograms and QQ-Plots indicate that distributions for target_flag, kidsdriv, homekids, yoj, income, oldclaim, clm_freq, and mvr_pts depart depart from a normal model. This is confirmed using a Shapiro-Wilk test of normality for numerical values.
+
+Transformation of these variables may be desirable during model building. Log, square root, and polynomial transformations may be particularly helpful in this regard. 
 
 
 ```{r}
 
-# Evaluate and rank departures from normality for numerical vars
+# Evaluate and rank departures from normality for numerical vars - Wilkes Shapiro
 
 df %>%
     as.data.frame()%>%
@@ -276,7 +291,12 @@ df%>%
 ```
 **1.5 Data Outliers**
 
-percentage of outliers > 5%: kidsdriv, homekids, yoj 
+The variables kidsrive, oldclaim, homekids, clm_freq, an yoj contain the highest percentage of outliers 
+(~6-17%, depending on target_flag level). The percentage of outliers is generally greater for observations
+associated with accidents (target_flag = 1) than without (target_flag = 0). 
+
+The extent to which these/other outliers influence model parametrization is not yet know and should be
+evaluated as part of the model building process.
 
 ```{r}
 
@@ -303,10 +323,9 @@ diagnose_outlier(target_1) %>%
 **1.6 Missing Data**
 
 Our dataset includes missing observations in one categorical variable (job) and six
-numerical variables (car_age, home-val, yoj, income, age). Across the variables the
-extent of missingness is < 6.5% of the total observations. Before making adjustments to
-address missingness, it may be helpful to assess collinearity among the covariates. 
-
+numerical variables (car_age, home-val, yoj, income, age). Across covariates 
+(i.e., predictor variables) the extent of missingness is < 6.5% of the total 
+observations. There are no obvious patterns in the missing data that warrant concern.
 
 ```{r }
 
@@ -343,9 +362,24 @@ df %>%
 ```
 **1.7 Impute Missing Values**
 
-Numerical variables
-methods have been preselected based on initial plots.
-Note: imputation method determined through iterative trials
+Given the relatively limited extent of missing data, an argument can be made for
+imputing these values rather than removing the observations during model building. 
+A variety of imputation methods are availabe for this purpose. They include:
+
+- random selection of a value(s) between the minimum and maximum value of a covariate
+- replacement with the mean, median, or mode of the covariate's distribution
+- linear regression based on other covariates
+- k-nearest neighbors
+- recursive partitioning and regression trees
+- multivariate imputation by chained equations (mice)
+
+The following methods are selected for our model on the basis of initial experimentation:
+
+- car age: mice
+- home_val, yoj, income, age: recursive partitioning
+
+Comparison of density plots for original and imputed values show a good fit 
+for each of the numerical covariates.
 
 ```{r}
 
@@ -408,8 +442,8 @@ df%<>%mutate_if(is.numeric, round)
 
 
 ```
-
-Categorical Variables - job
+We can also impute missing values for categorical variables. In this case, the 
+'mice' method is used to impute values for the variable, job. 
 
 ```{r}
 
@@ -441,22 +475,34 @@ Save csv with imputed values
 **1.8 Pairwise Comparisons**
 
 Pairwise comparisons provide a method to identify collinear relationships between
-covariates. Variables that display high collinearity (e.g., <> .50) may be redundant 
-for modeling purposes (i.e., the total variance explained by each variable).
+covariates. Covariates that display high collinearity (e.g., correlation coefficients
+< -.50  or > .50) can reduce the precision and increase the sensitivity of model 
+coefficients due to lack of independence.     
 
-To refine the analyses, pairwise comparisons are assessed independently for the 
-two levels of the target variable. 
+To refine our analyses, pairwise comparisons are assessed following removal of 
+0 values. Our results indicate:
 
-Results:
+- high positive correlation between home_val and income, coeff ~ 0.96
+- high positive correlation between homekids and homedrive, coeff ~ 0.62
+- moderate positive correlation between home_val and car_age, coeff ~ 0.54
+- moderate positive correlation between income and car_age, coeff ~ 0.54
 
-* There are no pairwise correlations beyond the threshold (-.50, .50) for the target_flag = 1 subset
-* home_value and income have a positive coeff. of correlation of ~ 0.59
-* clm_freq and oldclaim have a positive coeff. of correlation of ~ 0.52
+As expected, there is also a strong association between income (numerical var.) 
+and job type (factor var.) - based on a kruskal-Wallis rank sum test.
 
 Both home_value and income have similar levels of missing data. An argument can be
 made for dropping either home-value or income from the dataset in order to simplify 
-the feature selection process. This is also true for clm_freq and oldclaim, although
-less clear cut. 
+our feature selection process and improve model precision. This may also be
+true for income and job type.
+
+Associations between home_val and car_age and income and car_age are less 
+concerning, due to lower correlation coefficients and higher variability. See
+plots below.
+
+Less clear is the association between homekids and kidsdriv (ordinal vars.)
+given their narrow range of values. 
+
+We will revisit options for feature removal during the model building process.
 
 
 ```{r}
@@ -480,9 +526,9 @@ df %>%
     
 
 df %>%
-    filter(clm_freq != 0 & oldclaim != 0)%>%
-    target_by(clm_freq) %>%
-    relate(oldclaim) %>%
+    filter(homekids != 0 & kidsdriv != 0)%>%
+    target_by(homekids) %>%
+    relate(kidsdriv) %>%
     plot()
 
 df %>%
@@ -490,6 +536,13 @@ df %>%
     target_by(home_val) %>%
     relate(car_age) %>%
     plot()
+
+df %>%
+    filter(income != 0 & car_age != 0)%>%
+    target_by(income) %>%
+    relate(car_age) %>%
+    plot()
+
 
 # Plot relationship between numerical and factors for select variables
 
@@ -502,14 +555,23 @@ df%>%kruskal.test(income~job) # assess covariance with Kruskal-Wallis rank sum t
 
 
 ```
+We can visually assess relationships between categorical variables and 
+our response variable, target-flag, using mosaic plots. In this case,
+a relationship is indicated by relative differences in variable 
+levels for each level of target-flag.
 
-Categorical variables and target
+Note that the width of plot columns is proportional to the count of observations
+for each level of the variable plotted on the horizontal axis. And the vertical
+lenght is proportional to the count in the second variable (i.e., target_flag)
+within each level of the first variable. 
 
-Note: target_flag needs to be a factor var for mosaic plotting
+On this basis we find that:
 
-Note: use all_of to avoid ambiguity in selecting external vector - https://tidyselect.r-lib.org/reference/faq-external-vector.html
+- All categorical variables except 'sex' and 'red-car' display relationships 
+to target_flag.
 
-Findings:
+An argument can be made for dropping 'sex and 'red_car' from our set of covariates
+in order to streamline the modeling process. 
 
 ```{r }
 
@@ -530,7 +592,13 @@ predictors <- all_of(names(mosaic)[2:11])
 
 
 ```
-Numeric variables and target
+Boxplots make an effective visual tool to assess relationships between target_flag
+and our numerical covariates. 
+
+On this basis, it appears that 'bluebook', 'tif', 'clm_freq', 'mvr_pts', 'car_age',
+'home_val', and 'income' vary by level of target_flag. The presence of outliers,
+however, argues for caution in this interpretation. 
+
 
 ```{r}
 
@@ -562,6 +630,19 @@ box_plots<-map(explain, ~box_fun(.x)) #creates a list of plots using purrr
 plot(reduce(box_plots,`+`)) # layout with patchwork
 ```
 **1.9 Final Variable Selections**
+
+Before forming training and testing datasets, we will drop 'home_val' and 
+'target_amt'. Variability in the model explained by 'home_val' will be largely
+explaine by 'income'. And 'target_amt'  is not relevant to our classification 
+process.
+
+We will also collapse the variable 'job' into two levels: 'non-white-collar' and 
+'white-collar'. While this may result in a slight loss of discriminatory power in 
+our model(s) it does lend to model simplification.
+
+Rather than make an other apriori choices to drop other covariates, we will 
+automate feature selection as part of the modeling process.  
+
 
 ```{r}
 
