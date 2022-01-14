@@ -28,7 +28,7 @@ The purpose of this work is to estimate the probability that an individual (seek
 
 The dataset includes two response variables. The first, 'target_flag', is scored as either a 1 or 0 indicating that an individual has or has not been in an accident, respectively. On this basis, a score of 1 is considered a 'positive' result and 0 a 'negative' result. The second response variable, 'target_amt' refers to the amount paid on a individual's claim given an accident occurred. Target_amt is a numerical variable ranging from $0 (no accident/claims) upward.   
 
-A binary logistic classification model will be constructed to estimate the probability of class membership (1 or 0) and a multiple linear regression model to predict payout cost in the event of an accident. This statistical approach builds on classical methods for model training/testing (which underlie more modern, machine learning, strategies for classification and prediction) and permits more explicit consideration of model assumptions and diagnostics. 
+A binary logistic classification model will be constructed to estimate the probability of class membership (1 or 0) and a multiple linear regression model to predict payout cost in the event of an accident. This statistical approach builds on classical methods for model training/testing (which underlie more modern, machine learning, strategies for classification and prediction) and invites more explicit consideration of model assumptions and diagnostics. 
 
 The data include the following variables: 
 
@@ -113,9 +113,9 @@ The following processing steps are included below:
 - data storage as dataframe(s)
 - case consistency and removal of special characters
 - type conversion and re-leveling of select factor variables
-- removal of empty/duplictae rows and/or columns
+- removal of empty/duplicate rows and/or columns
 - subsetting to remove unnecessary columns
-- renaming columns and values for clarity
+- renaming column values for clarity
 
 ```{r}
 
@@ -191,10 +191,10 @@ df %>%
 
 On the basis of the following statistical summaries we find:
 
-- There is one negative value (-3) for car_age that should be investigated. This may be 
+- There is one negative value (-3) for 'car_age' that should be investigated. This may be 
 a data entry error.
 - A number of numerical variables have highly skewed distributions (compare mean & median)
-- A high percentage of zeros occur in variables: kidsdriv, homekids, oldclaim, clm_freq, mvr_pt
+- A high percentage of zeros occur in variables: 'kidsdriv', 'homekids', 'oldclaim', 'clm_freq', 'mvr_pt'
 - Outliers are common across the numerical variables, particularly for observations where target_flag = 0.  
 
 
@@ -246,7 +246,7 @@ target_1%>%
 
 ```
 
-We drop one observation where car_age is < 0 given that it is impossible to have
+We drop one observation where 'car_age' is < 0 given that it is impossible to have
 a negative age. This appears to be a data entry error given there are no other
 negative values in this variable category. 
 
@@ -261,9 +261,13 @@ df$car_age[df$car_age < 0] <- NA
 
 **1.4 Covariate Distributions**
 
-Histograms and QQ-Plots indicate that distributions for target_flag, kidsdriv, homekids, yoj, income, oldclaim, clm_freq, and mvr_pts depart depart from a normal model. This is confirmed using a Shapiro-Wilk test of normality for numerical values.
+Histograms and QQ-Plots indicate that distributions for 'target_flag', 'kidsdriv', 'homekids', 'yoj', 'income', 'oldclaim', 'clm_freq', and 'mvr_pts' depart from a normal model. This is confirmed using a Shapiro-Wilk test of normality for numerical values.
 
 Transformation of these variables may be desirable during model building. Log, square root, and polynomial transformations may be particularly helpful in this regard. 
+
+From an interpretive stand-point, it's worth noting the high 0 value counts for the following covariates: 'tif', 'oldclaim', 'car_age', 'income', 'home_val'. Particularly the latter two. For example, a 0 value for 'income' may indicate that an individual is unemployed and/or a student/dependent. A 0 value for 'home_val' may indicate that an individual is a renter, a dependent, or homeless. 
+
+These details can be important in establishing the costs:benefits of insuring a driver. And their absence (as in this dataset) can limit the discriminatory ability of a model. 
 
 
 ```{r}
@@ -322,8 +326,8 @@ diagnose_outlier(target_1) %>%
 
 **1.6 Missing Data**
 
-Our dataset includes missing observations in one categorical variable (job) and six
-numerical variables (car_age, home-val, yoj, income, age). Across covariates 
+Our dataset includes missing observations in one categorical variable ('job') and six
+numerical variables ('car_age', 'home-val', 'yoj', 'income', 'age'). Across covariates 
 (i.e., predictor variables) the extent of missingness is < 6.5% of the total 
 observations. There are no obvious patterns in the missing data that warrant concern.
 
@@ -375,8 +379,8 @@ A variety of imputation methods are availabe for this purpose. They include:
 
 The following methods are selected for our model on the basis of initial experimentation:
 
-- car age: mice
-- home_val, yoj, income, age: recursive partitioning
+- 'car _age': mice
+- 'home_val', 'yoj', 'income', 'age': recursive partitioning
 
 Comparison of density plots for original and imputed values show a good fit 
 for each of the numerical covariates.
@@ -443,7 +447,7 @@ df%<>%mutate_if(is.numeric, round)
 
 ```
 We can also impute missing values for categorical variables. In this case, the 
-'mice' method is used to impute values for the variable, job. 
+mice method is used to impute values for the variable, 'job'. 
 
 ```{r}
 
@@ -482,25 +486,25 @@ coefficients due to lack of independence.
 To refine our analyses, pairwise comparisons are assessed following removal of 
 0 values. Our results indicate:
 
-- high positive correlation between home_val and income, coeff ~ 0.96
-- high positive correlation between homekids and homedrive, coeff ~ 0.62
-- moderate positive correlation between home_val and car_age, coeff ~ 0.54
-- moderate positive correlation between income and car_age, coeff ~ 0.54
+- high positive correlation between 'home_val' and 'income', coeff ~ 0.96
+- high positive correlation between 'homekids' and 'homedrive', coeff ~ 0.62
+- moderate positive correlation between 'home_val' and 'car_age', coeff ~ 0.54
+- moderate positive correlation between 'income' and 'car_age', coeff ~ 0.54
 
-As expected, there is also a strong association between income (numerical var.) 
-and job type (factor var.) - based on a kruskal-Wallis rank sum test.
+As expected, there is also a strong association between 'income' (numerical var.) 
+and 'job' type (factor var.) - based on a kruskal-Wallis rank sum test.
 
-Both home_value and income have similar levels of missing data. An argument can be
-made for dropping either home-value or income from the dataset in order to simplify 
+Both 'home_value' and 'income' have similar levels of missing data. An argument can be
+made for dropping one or the other from the dataset in order to simplify 
 our feature selection process and improve model precision. This may also be
-true for income and job type.
+true for 'income' and 'job' type.
 
-Associations between home_val and car_age and income and car_age are less 
+Associations between 'home_val' and 'car_age' and 'income' and 'car_age' are less 
 concerning, due to lower correlation coefficients and higher variability. See
 plots below.
 
-Less clear is the association between homekids and kidsdriv (ordinal vars.)
-given their narrow range of values. 
+Less clear is the association between 'homekids' and 'kidsdriv'
+given their narrow range of integer values. 
 
 We will revisit options for feature removal during the model building process.
 
@@ -556,19 +560,19 @@ df%>%kruskal.test(income~job) # assess covariance with Kruskal-Wallis rank sum t
 
 ```
 We can visually assess relationships between categorical variables and 
-our response variable, target-flag, using mosaic plots. In this case,
+our response variable, 'target-flag', using mosaic plots. In this case,
 a relationship is indicated by relative differences in variable 
-levels for each level of target-flag.
+levels for each level of 'target-flag'.
 
 Note that the width of plot columns is proportional to the count of observations
 for each level of the variable plotted on the horizontal axis. And the vertical
-lenght is proportional to the count in the second variable (i.e., target_flag)
+lenght is proportional to the count in the second variable (i.e., 'target_flag')
 within each level of the first variable. 
 
 On this basis we find that:
 
 - All categorical variables except 'sex' and 'red-car' display relationships 
-to target_flag.
+to 'target_flag'.
 
 An argument can be made for dropping 'sex and 'red_car' from our set of covariates
 in order to streamline the modeling process. 
@@ -592,7 +596,7 @@ predictors <- all_of(names(mosaic)[2:11])
 
 
 ```
-Boxplots make an effective visual tool to assess relationships between target_flag
+Boxplots make an effective visual tool to assess relationships between 'target_flag'
 and our numerical covariates. 
 
 On this basis, it appears that 'bluebook', 'tif', 'clm_freq', 'mvr_pts', 'car_age',
@@ -640,8 +644,9 @@ We will also collapse the variable 'job' into two levels: 'non-white-collar' and
 'white-collar'. While this may result in a slight loss of discriminatory power in 
 our model(s) it does lend to model simplification.
 
-Rather than make an other apriori choices to drop other covariates, we will 
-automate feature selection as part of the modeling process.  
+Rather than make any additional a-priori choices to drop other covariates, we will 
+automate variable selection (via. Akaike Information Criterion) as part of the 
+modeling process.  
 
 
 ```{r}
@@ -659,38 +664,25 @@ base_df%<>%
 
 ##2. Training and Test Datasets##
 
-use caret - rebalancing train for model building, test maintains relative freqs
+Prior to modeling, the dataset is randomly sampled to create a subset for model training (train_df) and model evaluation (test_df). 
 
 ```{r}
 # Base_df<-read.csv('base_df.csv') # hold here to assist model dev 
 
 base_df%>%count(target_flag)%>%
     mutate(frequency = n/sum(n))%>%
-    flextable()%>%  #--- > 0 = 6008, 1 = 2153
+    flextable()%>%  
     set_caption("Count and Frequency of Target Variable by Level")
 
-ones <- base_df%>%
-    filter(target_flag == "1")
+set.seed(1235) 
 
-zeros <-base_df%>%
-    filter(target_flag =="0")
+# Build train/test sets
 
-set.seed(1234) 
+trainIdx <- createDataPartition(base_df$target_flag, p = .75,
+            list = FALSE, times = 1)
 
-# Build train/test sets; down-sample to re-balance test dataset
-
-input_ones <- sample(1:nrow(ones), 0.7*nrow(ones))
-input_zeros <- sample(1:nrow(zeros), 0.7*nrow(ones))
-
-train_ones <- ones[input_ones, ]
-train_zeros <- zeros[input_zeros, ]
-
-train_df<-rbind(train_ones, train_zeros)
-
-test_ones <- ones[-input_ones,]
-test_zeros <- zeros[-input_zeros,]
-
-test_df <- rbind(test_ones, test_zeros)
+train_df <- base_df[trainIdx,]
+test_df <- base_df[-trainIdx,]
 
 #Check counts and frequencies of target_flag for train set and test set 
 
@@ -706,9 +698,28 @@ test_df%>%count(target_flag)%>%
 
 ```
 
-##3. Build Models##
+##3. Logistic Regression Models##
 
-Some description here
+Selection of a logistic classifier will be based on comparison of four 
+models:
+
+1. Null model - the class probability p is independent of any terms (covariates) and is 
+the same for all data points. Only one parameter (the intercept) is fit. 
+2. Full model - all possible terms are included in the model.
+3. Reduced model - a nested subset of a the full model that excludes non-significant (chi-sqr.).
+4. Transformation model - select terms used in the the reduced model are transformed to
+meet model requirements and improve fit.
+
+We will assume that the null and full models are valid for the purposes of model comparison. Validity will be inferred from model diagnostics for the reduced and transformed model. 
+
+To be considered valid, a binary logistic model should meet the following
+conditions:
+
+- the response variable is binary.
+- observations are independent of each other.
+- there is little or no multicollinearity among covariates.
+- covariates and the logit (log odds) are linearly related.
+
 
 **3.1 Null Model: Logistic Regression**
 
@@ -724,6 +735,9 @@ null_stats<-glance(null) # collect stats for model comparisons
 
 **3.2 Full Model: Logistic Regression**
 
+Several terms included in the full model are not significant - 'homekids', 'sex', 
+'red_car', 'car_age', 'age'. 
+
 ```{r}
 
 full<-glm(target_flag ~ ., family = binomial, train_df) 
@@ -735,6 +749,9 @@ full_stats<-glance(full) # collect stat metrics for model comparisons
 
 ```
 **3.3 Reduced Model: Logistic Regression **
+
+The reduced model will be constructed using the Akaike Information Criterion to 
+remove covariates that are not statistically significant. 
 
 ```{r}
 
@@ -751,9 +768,33 @@ reduced_stats<-glance(reduced) # collect stats for model comparisons
 ```
 **3.3.1 Diagnostics: Reduced Model**
 
-The ROC curve shows the tradeoff between true positive rate and false positive rate across all cutoff values.
+The ability of a binary classifier to discriminate class membership can be 
+evaluated using a confusion (error) matrix as well as a receiver operating 
+characteristic (ROC curve).
 
-Note: InformationValue:confusionMatrix -- wants predicts and obs to be numerical, in caret they should be factor!
+A confusion matrix for binary classifiers consists of a 2x2 table with counts of 
+actual and predicted classes for a response variable; providing a measure of
+correct (true positives, true negatives) and incorrect classifications 
+(false positives, false negatives) at a given probability threshold.
+
+The receiver operating characteristic plots a model's true positive rate 
+(i.e., sensitivity|recall|probability of detection) against the false positive 
+rate (i.e., 1-specificity|probability of false detection) at various probability thresholds. Importantly, the area under the ROC curve (AUC) offers a measure of 
+model accuracy and can be used as a statistic for model comparison. 
+
+The reduced model correctly classifies ~ 75% of the positive class and ~67% of
+the negative class for 'target_flag' at a probability threshold of 0.51. In this
+instance, the selected threshold optimizes for balance in true positive and 
+false positive rates. 
+
+Depending on claim costs, it may be advisable to lower the threshold such that
+more positive observations (crashes) are correctly classified at the cost of
+fewer correct negative classifications. Translated, this reflects a cost:balance
+between potential payouts and income that can guide a carrier's determination of 
+coverage for an individual driver. 
+
+The AUC and other measures of performance for the reduced model are discussed in
+the model selection section. 
 
 ```{r}
 
@@ -773,7 +814,7 @@ Miss_Class_Error<-misClassError(train_df$target_flag, predicted,  threshold = op
 
 predicts<-ifelse(predicted >= optimal, 1, 0)
 
-# Subset actuals and predicts as numeric for confusion matrix
+# Subset actuals and predicts as numeric for confusion matrix (factors in caret)
 
 actuals<-as.numeric(as.character(train_df$target_flag))
 
@@ -796,7 +837,7 @@ Predict_Power<-Predict_Power$Concordance
 
 ks_plot(actuals, predicts) #cum perc of ones captured by the model against that expected random
 
-Kol_Smirnov<-ks_stat(actuals, predicts) #Kolmogorov-Smirnov statistic - maximum difference between the cumulative true positive and cumulative false positive rate
+Kol_Smirnov<-ks_stat(actuals, predicts) #Kolmogorov-Smirnov statistic - maximum difference between the cumulative true positive and cumulative false positive rate. --> .69
 
 # Create a metrics table
 
@@ -818,7 +859,16 @@ plotROC(actuals, predicted)
 
 **3.3.2 Reduced Model: Overdispersion**
 
-- we are within tolerable levels of dispersion
+As part of the diagnostic process, we check the model residuals for evidence of
+overdispersion. This occurs when the residuals are more variable than expected
+for a binomial distribution. 
+
+Overdispersion can be evaluated by dividing a model's residual deviance by the 
+degrees of freedom. A value close to 1 indicates that there is no overdispersion.
+A greater value indicates otherwise; in which case a negative binomial model may
+be more appropriate. 
+
+There is no evidence of overdispersion in the reduced model.
 
 ```{r}
 
@@ -833,61 +883,31 @@ quasi_model <-  glm(target_flag ~ .,family='quasibinomial', base_df) # note: usi
 pchisq(summary(quasi_model)$dispersion * reduced$df.residual,
  reduced$df.residual, lower = F)  
 ```
-**3.3.3 Reduced Model: Check linearity of numerical vars vs. logit***
 
-Linearity is questionable for yoj, oldclaim
+**3.3.3 Reduced Model: Outliers and Infuential obs**
 
-Note clustering in oldclaim - consider turning into 3-level factor?
+The presence of influential outliers (outliers with high leverage) can negatively
+affect model results. 
 
-```{r}
+Influence can be evaluated on the basis of a model's 
+[standardized residuals](https://www.statology.org/standardized-residuals/) and 
+[Cook's distance](http://www.sthda.com/english/articles/36-classification-methods-essentials/148-logistic-regression-assumptions-and-diagnostics-in-r/).
 
-#create a dataframe for linearity analysis
-
-reduced_df<-train_df
-
-reduced_df$predicted<-predict(reduced,train_df,type='response') # add predicted
-
-reduced_df%<>%mutate(logit = log(predicted/(1-predicted))) # add logit
-
-
-par(mfrow = c(2,4)) 
-
-# check linearity btwn numerical predictors and logit
-
-with(reduced_df, scatter.smooth(travtime, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(tif, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(mvr_pts, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(income, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(homekids, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(oldclaim, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(clm_freq, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-with(reduced_df, scatter.smooth(bluebook, logit, lpars = list(col = "red", lwd = 3, lty = 3)))
-
-
-
-```
-
-**3.3.4 Reduced Model: Outliers and Infuential obs**
-
-computes the standardized residuals (.std.resid) and the Cook’s distance (.cooksd) using the R function augment() [broom package]
-
-See: http://www.sthda.com/english/articles/36-classification-methods-essentials/148-logistic-regression-assumptions-and-diagnostics-in-r/
-
-Findings:
-
-Cooks distance indicates several standout obs (3722, 3592, 6501) but no influential points (id. D >1.0)
-
-There are no obs has std residual beyond 3 stdev: 5101
+While the majority of covariates contain outliers, there is little evidence for 
+influential outliers (excepting obs. 5101) in the training set 
+(i.e., st.resid <3 stdev & cooksd < 1). 
 
 
 ```{r}
 
 # Extract model results
 
+reduced_df<-train_df
+
 reduced_df$data <- augment(reduced) %>% #add model output to dataframe
   mutate(index = 1:n()) 
 
-# Identify Outliers
+# Identify influential outliers
 
 reduced_df$data %>% top_n(10, .cooksd)
 
@@ -906,9 +926,54 @@ reduced_df$data %>%
 
 
 ```
-**3c.3.5. Reduced Model: Collinearity**
+**3.3.4 Reduced Model: linearity of numerical variables vs. logit**
 
-Findings: no problems with collinearity
+Recall that linearity between each numerical covariate and the logit is one 
+requirement of a valid logistic model. 
+
+The bivariate plots below indicate this requirement is met for most of the 
+covariates, with the possible exception of 'travtime' and 'oldclaim'. These 
+variables may benefit from transformation. 
+
+```{r}
+
+#create a dataframe for linearity analysis
+
+reduced_df$predicted<-predict(reduced,train_df,type='response') # add predicted
+
+reduced_df%<>%mutate(logit = log(predicted/(1-predicted))) # add logit
+
+
+# plot - check linearity btwn numerical predictors and logit, .data used to pass strings into aes
+
+covar_df<-reduced_df%>%
+    dplyr::select(is.numeric)
+
+xvar<-names(covar_df)[2:13] # numerical covariates
+xvar<-purrr::set_names(xvar)
+
+linear_func <- function(x){
+    ggplot(covar_df, aes_string(x=x, y='logit'))+ 
+    geom_point(alpha=.2)+
+    geom_smooth(method = "loess", se = FALSE, color='red')+
+    theme_minimal()
+}
+
+linear_plots<-map(xvar, ~linear_func(.x)) #map plotting function
+
+plot(reduce(linear_plots,`+`)) # reduce for single print
+
+
+```
+
+**3.3.5. Reduced Model: Collinearity**
+
+Another requirement of a valid logistic model is the absence of multicollinearity
+among covariates. One measure of multicollinearity is the Variance Inflation 
+Factor (VIF). A high VIF value (e.g. 10) for a covariate indicates that it is
+highly collinear with other covariates in the model. 
+
+There is no evidence of problematic multicollinearity in the reduced model. 
 
 ```{r}
 
@@ -917,7 +982,19 @@ car::vif(reduced)
 
 **3.3.6. Reduced Model: Independence of Residuals**
 
-We see some possible pattern (curvature) that might indicate misclassification but its unclear 
+A final model requirement is the independence of observations. This can be
+assess by plotting the model residuals against the linear predictor (i.e., combination
+of coefficients and covariates). Independence is indicated by the absence of 
+pattern in the resulting plot. 
+
+There does appear to be some curvature in the plot of residuals vs linear
+predictor for the reduced model that may point to a departure from independence. 
+This might result, for example, from grouping effects among categorical 
+covariates. 
+
+Given that the plotting pattern is not severe and that the model serves a 
+predictive (vs. explanatory) purpose, there is not sufficient evidence to reject
+the model.
 
 ```{r }
 
@@ -934,11 +1011,41 @@ plot(residuals~linpred, diag, xlab = "linear predictor")
 
 **3.3.7 Reduced Model: Goodness of Fit - Marginal Plots**
 
+The reduced model is considered valid on the basis of requirements described 
+for logistic regression. 
+
+The 'goodness' of model fit can be readily evaluated from marginal plots for each variable. Marginal plots graph actual and conditional probabilities (estimated by the model) 
+for each covariate relative to the response variable. The resulting curves align 
+closely in a model that fits the data well.
+
+The reduced model provides a good fit to the data. Although some departure
+is observed for actual and conditional probabilities in the plots for 'travtime',
+'bluebook', and 'age'. These departures are not severe and may be lessened by
+transforming these features. 
+ 
 ```{r}
 marginals_reduced<-mmps(reduced,main=NULL)
 ```
 
 **3.4 Transformation Model**
+
+The transformation model includes terms from the reduced model with
+transformations to reduce skew in select covariates. On this basis, 
+'travtime' and 'bluebook' will be log transformed while 'tif' and 'income'
+will be square root transformed. 
+
+This transformations follow from earlier model trials (not shown here) and 
+experimentation. 
+
+All covariates included in the transformation model are significant at the 
+.05 level. 
+
+The transformation model correctly classifies ~ 80% of the positive class and ~68% of
+the negative class for 'target_flag' at a probability threshold of 0.21 - optimizing
+for low misclassification error. The AUC is ~ .81, similar to the reduced model.
+
+The transformation model is valid (diagnostics not included for the purpose of 
+brevity).
 
 ```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
 
@@ -946,8 +1053,8 @@ marginals_reduced<-mmps(reduced,main=NULL)
 #Build model with transformed vars
 
 trans <- glm( target_flag ~ kidsdriv + parent1 + mstatus + education + 
-    log(travtime) + car_use + log(bluebook) + sqrt(tif) + car_type + (oldclaim) + 
-    clm_freq + revoked + mvr_pts + urbanicity + sqrt(income) + age, family='binomial', train_df)
+    log(travtime) + car_use + log(bluebook) + sqrt(tif) + car_type + oldclaim + 
+    clm_freq + revoked + mvr_pts + urbanicity + sqrt(income), family='binomial', train_df)
 
 trans<-step(trans, trace=0) 
 
@@ -958,6 +1065,8 @@ trans_stats<-glance(trans) # save stats for model comparisons
 
 ```
 **3.4.1 Transformation Model: Diagnostics **
+
+
 
 ```{r}
 
@@ -1018,6 +1127,9 @@ plot(perf_trans, colorize = TRUE, main = "ROC curve for logistic regression on i
 plotROC(trans_actuals, trans_predicted)
 ```
 **3.4.2 Transformed Model: Goodness of Fit **
+
+Marginal plots for show improvements in model fit with the transformations 
+selected for 'travtime', 'bluebook', 'tif', and 'income'.
 
 ```{r}
 marginals_trans<-mmps(trans,main=NULL)
