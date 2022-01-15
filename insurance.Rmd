@@ -83,12 +83,13 @@ library(flextable) #table layout and formatting
 library(dlookr) # exploratory data analysis functions
 library(patchwork) # easy plot layout
 library(ggpubr) # creates a wrapper for plotting a list
-library(viridis) #box plots
+library(viridis) #coloration for box plots
 library(broom) # creates a tidy data frame from statistical test results
 library(InformationValue) # optimize threshold
-library(caret) # conf matrix
+library(caret) # modeling
 library(ROCR) #roc curve
 library(car) # marginal plots
+library(tidymodels) # modeling
 ```
 
 ```{r}
@@ -725,12 +726,19 @@ conditions:
 
 ```{r}
 
+# build and summarize null model
+
 null<-glm(target_flag ~ 1, family = binomial, train_df)
 
 summary(null)
 
 null_stats<-glance(null) # collect stats for model comparisons
 
+# calculate AUC for model selection process - see 3.3.1 for discussion on AUC
+
+null_predicted<-predict(null, train_df,type='response')
+null_actuals<-as.numeric(as.character(train_df$target_flag))
+AUROC(null_actuals, null_predicted)
 ```
 
 **3.2 Full Model: Logistic Regression**
@@ -744,8 +752,13 @@ full<-glm(target_flag ~ ., family = binomial, train_df)
 
 summary(full)
 
-
 full_stats<-glance(full) # collect stat metrics for model comparisons
+
+# calculate AUC for model selection process - see 3.3.1 for discussion on AUC
+
+full_predicted<-predict(full, train_df,type='response')
+full_actuals<-as.numeric(as.character(train_df$target_flag))
+AUROC(full_actuals, full_predicted)
 
 ```
 **3.3 Reduced Model: Logistic Regression **
@@ -779,7 +792,8 @@ correct (true positives, true negatives) and incorrect classifications
 
 The receiver operating characteristic plots a model's true positive rate 
 (i.e., sensitivity|recall|probability of detection) against the false positive 
-rate (i.e., 1-specificity|probability of false detection) at various probability thresholds. Importantly, the area under the ROC curve (AUC) offers a measure of 
+rate (i.e., 1-specificity|probability of false detection) at various probability 
+thresholds. Importantly, the area under the ROC curve (AUC) offers a measure of 
 model accuracy and can be used as a statistic for model comparison. 
 
 The reduced model correctly classifies ~ 75% of the positive class and ~67% of
@@ -1053,7 +1067,7 @@ brevity).
 #Build model with transformed vars
 
 trans <- glm( target_flag ~ kidsdriv + parent1 + mstatus + education + 
-    log(travtime) + car_use + log(bluebook) + sqrt(tif) + car_type + oldclaim + 
+    log(1+travtime) + car_use + log(1+bluebook) + sqrt(tif) + car_type + oldclaim + 
     clm_freq + revoked + mvr_pts + urbanicity + sqrt(income), family='binomial', train_df)
 
 trans<-step(trans, trace=0) 
@@ -1066,7 +1080,9 @@ trans_stats<-glance(trans) # save stats for model comparisons
 ```
 **3.4.1 Transformation Model: Diagnostics **
 
-
+Tests of model validity for the transformation model are comparable to the reduced 
+model and, to avoid repetition, are not reported here. Diagnostics for model
+performance are included below and in section 4. 
 
 ```{r}
 
@@ -1135,10 +1151,35 @@ selected for 'travtime', 'bluebook', 'tif', and 'income'.
 marginals_trans<-mmps(trans,main=NULL)
 ```
 
-
 ##4. Model Selection##
 
-Note - trans - marginals similar to reduced, collinearity similar, linearity similar
+There are a variety of methods to aid model selection, both quantitative and
+qualitative. Here selection will proceed using a cross-section of diagnostics 
+that aim for:
+
+- the lowest AIC and/or BIC value
+- the smallest standard errors
+- the lowest residual deviance
+- the highest AUC scores
+
+It's worth noting that diagnostics for the transformation model produced similar
+results as the reduced model. Both are considered valid.
+
+From the first table below (i.e., comparison of model results) it is clear that 
+the transformed model is an appropriate choice. It produces the lowest AIC & BIC 
+values and the lowest residual deviance. Additionally, the AUC for our 
+transformed model is equivalent to the reduced and full models (.81) and greater 
+than the null model (.50). It does, however, produce higher std. 
+errors for transformed covariates. 
+
+Other measures of performance are included in the classification metrics table 
+below (reduced and transformation models). Note, however, that they are specific 
+to the probability thresholds selected for each model. And are not considered
+criterion for model selection.
+
+Additional tests can be performed to confirm our model choice (e.g., likelihood 
+ratio tests for nested models) but are not necessary. 
+
 
 ```{r}
 
@@ -1149,7 +1190,7 @@ col_name<-c('Null Model', 'Full Model', 'Reduced Model', 'Transformed Model')
 comp<-rbind(null_stats, full_stats, reduced_stats, trans_stats)
 
 (compare_models<- cbind(col_name, comp)%>%
-    dplyr::select(-c(null.deviance, df.null))%>%
+    dplyr::select(-c(null.deviance, df.null, logLik, nobs))%>%
     rename(Model = col_name)%>%
     flextable()%>%
      set_caption("Comparison of Model Results"))
@@ -1171,22 +1212,37 @@ final_comp<-rbind(reduced_metrics, trans_metrics)
 
 ##5. Model Evaluation##
 
+To assess how well the transformation model generalizes, we apply it to the 
+test dataset and summarize the results. Interestingly, the AUC produced on the 
+test set has increased (.82) relative to the training set - indicating that the
+model generalizes well. 
+
+Assume for a moment that an insurer seeks to minimize their risk of
+claim payouts (relative to client payments). In this instance, they might 
+elect to lower the probability threshold used to classify new clients. 
+
+Below, our results for model performance reflect a cutoff of ~0.25. The model 
+classifies 90% of our positives (target_flag = 1, crash) correctly, as compared 
+to 49% of our negatives (target_flag = 0, no accidents).
+
+Other related measures of performance are included in the metrics table.
+
 ```{r}
 
-# Apply reduced model to test data
+# Apply transformation model to test data
 
-reduced_test<-glm(formula = target_flag ~ kidsdriv + parent1 + mstatus + 
-    education+travtime + car_use + bluebook + tif + car_type + oldclaim + 
-    clm_freq + revoked + mvr_pts + urbanicity + income + age, 
-    family = "binomial", data = test_df)
+trans_test <- glm( target_flag ~ kidsdriv + parent1 + mstatus + education + 
+    log(1+travtime) + car_use + log(1+bluebook) + sqrt(tif) + car_type + oldclaim + 
+    clm_freq + revoked + mvr_pts + urbanicity + sqrt(income), family='binomial', test_df)
+
 
 # Apply fitted model to test sample (predicted probabilities)
 
-predicted_test <- predict(reduced_test, test_df, type="response")
+predicted_test <- predict(trans_test, test_df, type="response")
 
 # Find optimal threshold to minimize misclassification
 
-test_optimal<- optimalCutoff(test_df$target_flag, predicted_test, optimiseFor = "Both") # --> .149
+test_optimal<- optimalCutoff(test_df$target_flag, predicted_test, optimiseFor = "Both") # --> .25
 
 # Calculate training classification error with .51 threshold
 
@@ -1228,7 +1284,7 @@ Kol_Smirnov<-ks_stat(actuals_test, predicts_test) #Kolmogorov-Smirnov statistic 
     mutate_at(vars(1:8), funs(as.numeric))%>%
     mutate_if(is.numeric, round, 3)%>%
     flextable()%>%
-    set_caption("Reduced Model-Test Data: Metrics"))
+    set_caption("Transformation Model-Test Data: Metrics"))
     
 
 # Construct ROC curve: note actuals, predicts, predicted as vectors)
@@ -1244,6 +1300,191 @@ plotROC(actuals_test, predicted_test)
 
 ```
 
-##6. Summary##
+##4. Linear Model: tidymodels##
+
+We can now build a linear model to predict payout cost (target_amt) to a driver 
+in the event of a crash. In this instance, we will conduct our model building
+process using tidymodels. 
+
+First, build a new a new training and test set (using random selection)
+for this purpose.
+
+```{r}
+
+# subset dataframe for linear model - variance in home_val explained by income
+
+linear_df<-df%>%
+    dplyr::select(-home_val, -target_flag)%>%
+    filter(target_amt > 0)
+    
+set.seed(123354) 
+
+# Build train/test sets
+
+linear_split<-initial_split(linear_df, prop = 3/4, strata = target_amt)
+
+linear_train<-training(linear_split)
+linear_test<- testing(linear_split)
+
+write_csv(linear_train, "linear_mod.csv")  # temp file for model development
+View(linear_test)
+```
+
+**4.1 Characterize Response Variable: Target Amt**
+
+The response variable (target_amt) is highly right skewed. This can be 
+problematic when constructing a multiple regression model using ordinary 
+least squares. 
+
+```{r}
+
+# histogram 
+
+hist <- linear_test%>%
+    ggplot(aes(target_amt))+
+    geom_histogram(fill='darkblue', bins=30)+
+    theme_minimal()
+
+# qqplot 
+
+points <- linear_test%>%
+    ggplot(aes(sample=target_amt))+
+    stat_qq(fill='darkblue')+
+    stat_qq_line()+
+    theme_minimal()+
+    labs(y='Target_amt ($)')
+
+#cumulative frequency plot
+
+cum <- linear_test%>%
+    ggplot(aes(target_amt)) + 
+    stat_ecdf(color='blue')+
+    theme_minimal()+
+    labs(y='Cumulative Frequency')
+    
+
+(hist|points)/cum
+
+linear_test$target_amt%>%
+    summary()%>%
+    tidy()%>%
+    flextable()%>%
+    set_caption("Univariate stats: target_amt")
+    
+
+
+```
+**4.1 Bivariate Plots**
+
+Included below is a full set of bivariate plots for numerical and factor
+predictors and our response, 'target_amt'. 
+
+Note that ~80% of the paid claims (target_amt) total less than $10,000. 
+To assist visual inspection, this latter value will be used as ceiling
+in the scatterplots below.
+
+```{r}
+
+numeric_df<-linear_test%>%
+    dplyr::select(is.numeric)
+
+xvar_names<-linear_test%>%
+    dplyr::select(is.numeric, -target_amt)%>%
+    names() # numerical covariates
+
+xvar_names<-purrr::set_names(xvar_names)
+
+ceiling<-
+    numeric_df%>%
+    filter(target_amt<10000)
+
+# create function for scatter plots 
+
+scatter_func <- function(x){
+    ggplot(ceiling, aes_string(x=x, y='target_amt'))+ 
+    geom_point(alpha=.1)+
+    geom_smooth(method = "loess", se = FALSE, color='red')+
+    theme_minimal()
+}
+
+scatter_plots<-map(xvar_names, ~scatter_func(.x)) #map plotting function
+
+plot(reduce(scatter_plots,`+`)) # reduce for single print
+
+# create function for boxplots
+
+factor_df<-linear_test%>%
+    dplyr::select(is.factor)
+
+target_amt<-linear_test$target_amt
+
+factor_df<-cbind(target_amt, factor_df)
+
+xvar_fact_names<-factor_df%>%
+    dplyr::select(-target_amt)%>%
+    names() # numerical covariates
+
+xvar_fact_names<-purrr::set_names(xvar_fact_names)
+
+box_fun = function(x) {
+    ggplot(num_box, aes_string(x = x, y = 'target_amt') ) +
+    geom_boxplot(aes(fill = target_flag, alpha = 0.4), outlier.color =
+    'red', show.legend = FALSE)+
+    scale_fill_viridis(discrete = TRUE, option = "E")+
+    coord_flip()+
+    theme_classic()
+}
+
+box_plots<-map(xvar_, ~box_fun(.x)) #creates a list of plots using purrr
+
+plot(reduce(box_plots,`+`)) # layout with patchwork
+
+
+```
+
+
+
+
+In general,
+the amount of payout is determined by such factors as:
+
+- Accident-related medical treatment & injury
+- Evidence of fault
+- Insured driver status
+- Cost of lost wages
+- Cost of damages to vehicle(s)
+
+
+
+
+To optimize model interpretability, it may be preferable
+to build a generalized linear model based on either a gamma or inverse gaussian distribution.
+
+
+
+
+
+
+
+
+
+
+
+
+##2. Training and Test Datasets##
+
+Prior to modeling, the dataset is randomly sampled to create a subset for model training (train_df) and model evaluation (test_df). 
+
+```{r}
+
+
+
+```
+
+
+
+
+
+##. Summary##
 
 To be completed
