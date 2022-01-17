@@ -89,7 +89,8 @@ library(InformationValue) # optimize threshold
 library(caret) # modeling
 library(ROCR) #roc curve
 library(car) # marginal plots
-library(tidymodels) # modeling
+
+
 ```
 
 ```{r}
@@ -151,8 +152,6 @@ df<-raw%>%
     mutate(education = fct_relevel(education, c("High School", "Bachelors", "Masters", "PhD")))%>% # relevel to show educational attainment steps
     
     mutate(car_type = fct_relevel(car_type, c("Sports Car", "SUV", "Minivan, Van", "Pickup", "Panel Truck")))
-
-str(df) # review structure of data set
 
 ```
 
@@ -1210,7 +1209,7 @@ final_comp<-rbind(reduced_metrics, trans_metrics)
     set_caption("Classification Metrics: Reduced & Transformed Models"))
 ```
 
-##5. Model Evaluation##
+##5. Logistic Regression Model Evaluation##
 
 To assess how well the transformation model generalizes, we apply it to the 
 test dataset and summarize the results. Interestingly, the AUC produced on the 
@@ -1300,72 +1299,110 @@ plotROC(actuals_test, predicted_test)
 
 ```
 
-##4. Linear Model: tidymodels##
+##6.0  Linear Model ##
 
 We can now build a linear model to predict payout cost (target_amt) to a driver 
-in the event of a crash. In this instance, we will conduct our model building
-process using tidymodels. 
+in the event of a crash. 
 
 First, build a new a new training and test set (using random selection)
 for this purpose.
+
+
+distinction between avg payout over set of claims or an individual claim --- indv, see o vals for oldclm and clm_freq
+
+common sense - bluebook, car_age, car_type, oldclaim/clm_freq = avg payout in past, predictor for future
+
+value_clm = target_amt/bluebook -- use this to parse out payment for damages other than collision, filtered 282 obs
+
+Note - there are no pairwise correlations -.5<>.5
 
 ```{r}
 
 # subset dataframe for linear model - variance in home_val explained by income
 
 linear_df<-df%>%
-    dplyr::select(-home_val, -target_flag)%>%
-    filter(target_amt > 0)
-    
-set.seed(123354) 
+    filter(target_amt > 0)%>%
+    mutate(avg_clm = round(oldclaim/clm_freq), 1)%>%  #avg claim payout in past to driver
+    mutate(value_clm = round((target_amt/bluebook)*100))%>% # payout cost -to- value percentage of most recent claim
+    mutate_at(vars(avg_clm), ~replace(., is.na(.), 0))%>%  # if no prior claims, set to 0
+    dplyr::select(target_amt, bluebook, car_age, car_type, value_clm, avg_clm)
+
+# use value_clm to drop target_amt with a cost/value ratio >1, then drop this variable 
+
+linear_df%<>%
+    filter(value_clm <100)%>%
+    select(-value_clm)
+
+
+linear_df%>%
+    filter_if(is.numeric, all_vars((.) != 0))%>%
+    correlate()%>%
+    filter(coef_corr > .5 | coef_corr < -.5)%>% # set thresholds to limit output 
+    flextable()%>%
+    set_caption("Pairwise Correlation: Numerical Covariates")
+
+set.seed(123344) 
 
 # Build train/test sets
 
-linear_split<-initial_split(linear_df, prop = 3/4, strata = target_amt)
+trainIdx <- createDataPartition(linear_df$target_amt, p = .75,
+            list = FALSE, times = 1)
 
-linear_train<-training(linear_split)
-linear_test<- testing(linear_split)
+linear_train <- linear_df[trainIdx,]
+linear_test <- linear_df[-trainIdx,]
 
-write_csv(linear_train, "linear_mod.csv")  # temp file for model development
-View(linear_test)
 ```
 
-**4.1 Characterize Response Variable: Target Amt**
+**6.1 Characterize Response Variable: Target Amt**
 
 The response variable (target_amt) is highly right skewed. This can be 
 problematic when constructing a multiple regression model using ordinary 
 least squares. 
 
+options for analyzing skewed outcomes that are potentially heterodscedastic - robust statistics (e.g., weighted least squares) transformation of the response variable(log). The former are appropriate for analyses involving few covariates.Transformations can lead to interpretive issues for the response on the original scale.
+
+Generalized linear models do not require normally distributed errors and homoscedasticity. Gaussian (variance unrelated to mean - homosced), gamma (pos skew, nonneg, variance proportional to square of the means), and inverse-Gaussian distributions (variance proportional to mean cubed) can be specified for continuous responses. 
+
+For gamma family - link function can be specified with a log or an inverse transformation function (allows us to get expected value in original scale). Explore these two.
+
+Insurance claim prediction:
+
+McCullagh and Nelder, Generalized Linear Models. 2nd ed.(http://www.utstat.toronto.edu/~brunner/oldclass/2201s11/readings/glmbook.pdf) 
+
+
 ```{r}
 
-# histogram 
+# Plot density distribution
 
-hist <- linear_test%>%
+hist <- linear_train%>%
     ggplot(aes(target_amt))+
-    geom_histogram(fill='darkblue', bins=30)+
-    theme_minimal()
+    geom_density(fill='darkblue', alpha=.5, bins=30)+
+    theme_minimal()+
+    labs(title='Distribution Density: target_amt')
 
-# qqplot 
+# qqplot  
 
-points <- linear_test%>%
+points <- linear_train%>%
     ggplot(aes(sample=target_amt))+
     stat_qq(fill='darkblue')+
     stat_qq_line()+
     theme_minimal()+
-    labs(y='Target_amt ($)')
+    labs(title='QQ Plot: target_amt', y='Target_amt')
 
 #cumulative frequency plot
 
-cum <- linear_test%>%
+cum <- linear_train%>%
     ggplot(aes(target_amt)) + 
     stat_ecdf(color='blue')+
     theme_minimal()+
-    labs(y='Cumulative Frequency')
+    labs(title = 'Cumulative Frequency Plot: target_amt', y='Frequency')
     
 
-(hist|points)/cum
+(hist|points)/cum # plot layout
 
-linear_test$target_amt%>%
+# univariate stats for target_amt
+
+linear_train$target_amt%>%
     summary()%>%
     tidy()%>%
     flextable()%>%
@@ -1374,7 +1411,7 @@ linear_test$target_amt%>%
 
 
 ```
-**4.1 Bivariate Plots**
+**6.2 Bivariate Plots**
 
 Included below is a full set of bivariate plots for numerical and factor
 predictors and our response, 'target_amt'. 
@@ -1383,67 +1420,342 @@ Note that ~80% of the paid claims (target_amt) total less than $10,000.
 To assist visual inspection, this latter value will be used as ceiling
 in the scatterplots below.
 
-```{r}
+It is difficult to discern a linear relationship between numerical covariates
+and 'target_amt'. In contrast, there does appear to be a linear relationship 
+between levels of car_type and 'target_amt'. 
 
-numeric_df<-linear_test%>%
-    dplyr::select(is.numeric)
 
-xvar_names<-linear_test%>%
+highest payouts - young cars, middle bb value, few to no past clms
+
+```{r fig.height=3 fig.width=20}
+
+
+xvar_names<-linear_train%>%
     dplyr::select(is.numeric, -target_amt)%>%
     names() # numerical covariates
 
 xvar_names<-purrr::set_names(xvar_names)
 
-ceiling<-
-    numeric_df%>%
-    filter(target_amt<10000)
-
 # create function for scatter plots 
 
 scatter_func <- function(x){
-    ggplot(ceiling, aes_string(x=x, y='target_amt'))+ 
-    geom_point(alpha=.1)+
+    ggplot(linear_train, aes_string(x=x, y='target_amt'))+ 
+    geom_point(aes_string(color='car_type'),alpha=.6)+
     geom_smooth(method = "loess", se = FALSE, color='red')+
     theme_minimal()
 }
 
-scatter_plots<-map(xvar_names, ~scatter_func(.x)) #map plotting function
+(scatter_plots<-map(xvar_names, ~scatter_func(.x))) #map plotting function
 
-plot(reduce(scatter_plots,`+`)) # reduce for single print
 
-# create function for boxplots
+# plot factor covariate car_type vs target_amt (< 10000 for readibility)
 
-factor_df<-linear_test%>%
-    dplyr::select(is.factor)
 
-target_amt<-linear_test$target_amt
+linear_train%>%
+    filter(target_amt < 10000)%>%
+    ggplot(aes(x = reorder(car_type, target_amt, FUN = median), y = target_amt, fill=car_type)) +
+    geom_boxplot(outlier.color ='red', show.legend = FALSE)+
+    scale_fill_viridis(discrete = TRUE, alpha=0.6)+
+    theme_classic()+
+    labs(title = 'Payment Amount vs. Car Type: Payments under $10,000')
 
-factor_df<-cbind(target_amt, factor_df)
 
-xvar_fact_names<-factor_df%>%
-    dplyr::select(-target_amt)%>%
-    names() # numerical covariates
-
-xvar_fact_names<-purrr::set_names(xvar_fact_names)
-
-box_fun = function(x) {
-    ggplot(num_box, aes_string(x = x, y = 'target_amt') ) +
-    geom_boxplot(aes(fill = target_flag, alpha = 0.4), outlier.color =
-    'red', show.legend = FALSE)+
-    scale_fill_viridis(discrete = TRUE, option = "E")+
-    coord_flip()+
-    theme_classic()
-}
-
-box_plots<-map(xvar_, ~box_fun(.x)) #creates a list of plots using purrr
-
-plot(reduce(box_plots,`+`)) # layout with patchwork
 
 
 ```
 
+**6.3 Interactions**
+
+Prior to modeling, we can visually assess potential covariate interactions as 
+predictors of 'target_amt'. It appears that 'car_type' influences the 
+relationship between each numerical covariate and 'target_amt'. In contrast,
+there to not appear to be any interactions among numerical 
+covariates in relation to 'target_amt'
+
+```{r fig.width=10, fig.height=4}
+
+# evaluate interactions between numerical variables and car_type using a linear 
+#model
+
+numvars<-purrr::set_names(c('bluebook', 'car_age', 'avg_clm'))
+
+filter_df<- linear_train%>%
+    filter(target_amt<10000)
+
+interact<- function (x){
+    ggplot(filter_df, aes_string(x = x, y = 'target_amt', color = 'car_type')) +
+    geom_smooth(method = 'lm', se=FALSE)+
+    theme_classic() +
+    labs(x = x, y = "target_amt")
+    
+}
+
+interact_plots<-map(numvars, ~interact(.x)) #map plotting function
+
+plot(reduce(interact_plots,`+`)) # reduce for single print
 
 
+# evaluate interactions between numerical values using continuous plots
+
+
+coplot(target_amt~bluebook|car_type, panel = panel.car, col='blue', rows=1, data=filter_df)
+coplot(target_amt~bluebook|avg_clm, panel = panel.car, col='blue', rows=1, data=filter_df)
+coplot(target_amt~bluebook|car_age, panel = panel.car, col='blue', rows=1, data=filter_df)
+coplot(target_amt~car_age|avg_clm, panel = panel.car, col='blue', rows=1, data=filter_df)
+
+```
+**6.4 Linear GLMZ: Null Model**
+
+Given that the response variable ('target_flag') consists of positive values
+and is strongly right skewed, several options for model building are available. 
+They include the following generalized linear forms:
+
+- log transformed gaussian model (link = identity)
+- gamma model (link = log or inverse)
+- poisson model (link = log)
+
+A gaussian model with a log transformed response may be difficult to interpret,
+particularly if additional steps are required to address heteroscedasticity. A
+gamma model is well suited to the modeling task and interpretation is straight-
+forward. In this case, a log link is a good starting choice and is necessary
+for a multiplicative model(i.e., interactions). A poisson is a possibility but
+is restricted to integer values for target_amt. 
+
+We will start with a null model with a log transformed response and assume that
+it is valid (unlikely).
+ 
+
+```{r}
+
+# note: gaussian glm with default link (identity) is equivalent to OLS
+
+null_glm <- glm(log(target_amt) ~ 1, family='gaussian', data=linear_train)
+
+summary(null_glm)
+
+```
+**6.5 Linear Model: Full w/ Main Effects**
+
+```{r}
+
+full_lm <- lm(log(target_amt) ~ ., data=linear_train)
+
+summary(full_lm)
+
+plot(full_lm)
+
+```
+**6.6 Linear Model: Reduced, w/ Interactions**
+
+```{r}
+
+gauss_interact <- lm(log(target_amt) ~ bluebook*car_type+car_age*car_type+avg_clm*car_type, family='gaussian', data=linear_train)
+
+interact_aic<-step(gauss_interact) # reduced model  -->log(target_amt) ~ bluebook + car_type + avg_clm + bluebook:car_type + car_type:avg_clm
+
+summary(interact_aic)
+
+plot(interact_aic)
+
+
+# check actual vs predicted values for target_amt, another check on model fit
+
+fit<-augment(interact_aic)%>%
+    rename(target = 'log(target_amt)')
+
+plot(density(fit$target), ylim=c(0, 3.0))
+lines(density(fit$.fitted), col='red')
+
+
+
+```
+**6.7 linear model: Gaussian reduced and predictors transformed**
+
+```{r}
+
+# transform response and predictors to log
+
+train_trans<-linear_train%>%   
+    mutate_if(is.numeric, ~log(1+.))
+
+gauss_interact_trans <- lm(target_amt ~ bluebook*car_type+car_age*car_type+avg_clm*car_type, data=train_trans)
+
+trans_aic<-step(gauss_interact_trans) 
+
+summary(trans_aic)
+
+plot(trans_aic) 
+
+#reduced model = target_amt ~ bluebook + car_type + bluebook:car_type
+
+
+```
+
+**6.8 GLMZ Model: Gamma (link=log), Reduced**
+
+```{r}
+
+gamma<- glm(target_amt ~ ., family=Gamma(link=log), data=linear_train)
+
+gamma_reduced<-step(gamma) # reduced glm(target_amt ~ bluebook)
+
+summary(gamma_reduced)
+
+glm1<-glance(gamma_reduced)
+
+```
+
+**6.8.1 Diagnostics: Gamma Reduced**
+
+constant variance perhaps
+independence confirmed
+
+
+
+Dunn, Peter K. and Gorden K. Smyth. 2018. Generalized Linear Models With Examples in R (Springer)
+
+```{r}
+
+#plot residuals vs linear predictor -- looking for constant variance with deviance resids 
+#indicates correct(link)
+
+plot(residuals(gamma_reduced) ~ predict(gamma_reduced, type='link'),
+xlab=expression(hat(eta)), ylab='Deviance Residuals')
+
+plot(density(rstandard(gamma_reduced, type='deviance')), col='blue')
+
+# check for independence of observations
+
+scatter.smooth(rstandard(gamma_reduced, type='deviance'), col='gray')
+
+# check if selected distribution is appropriate
+
+qqnorm(qresid(gamma_reduced)); qqline(qresid(gamma_reduced))
+
+
+#check for high leverage
+
+Cooks_Distance<-cooks.distance(gamma_reduced)
+
+plot(Cooks_Distance)
+
+lev<-(Cooks_Distance)
+
+length(lev[lev > mean(lev) * 2])  #102 is two times the mean of Cooks-d, high leverage 
+
+
+# check for influence -- no influential obs
+
+ which(influence.measures(gamma_reduced)$is.inf[,'cook.d'])
+
+
+ #check fitted resids vs fitted, a well fit model will have no pattern
+
+scatter.smooth(predict(gamma_reduced, type='response'), rstandard(gamma_reduced, type='deviance', col='gray'))
+
+# check actual vs predicted values for target_amt, another check on model fit
+
+plot(density(linear_test$target_amt), ylim=c(0, .0008), main='Actual vs Fitted (red): Target_Amt')
+
+lines(density(predict(gamma_reduced, type='response')), col='red')
+
+```
+
+
+**6.9 GLMZ Model: Gamma (link=log) w/ interactions**
+
+Note log transform on predictors did not help
+
+```{r}
+
+gamma_interact <- glm(target_amt ~ bluebook*car_type+car_age*car_type+avg_clm*car_type, family=Gamma(link= 'log'), data=linear_train)
+
+gamma_reduced_int<-step(gamma_interact) # target_amt ~ bluebook + car_type + avg_clm + bluebook:car_type + car_type:avg_clm
+
+glm2<-glance(gamma_reduced_int)
+
+
+
+```
+
+**6.9.1 Diagnostics: GLMZ Model: Gamma (link=log) w/ interactions**
+
+```{r}
+
+#plot residuals vs linear predictor -- looking for constant variance with deviance resids 
+#indicates correct(link)
+
+plot(residuals(gamma_reduced_int) ~ predict(gamma_reduced_int, type='link'),
+xlab=expression(hat(eta)), ylab='Deviance Residuals')
+
+plot(density(rstandard(gamma_reduced_int, type='deviance')), col='blue')
+
+# check for independence of observations
+
+scatter.smooth(rstandard(gamma_reduced_int, type='deviance'), col='gray')
+
+#check for high leverage
+
+Cooks_Distance<-cooks.distance(gamma_reduced_int)
+
+plot(Cooks_Distance)
+
+lev<-(Cooks_Distance)
+
+length(lev[lev > mean(lev) * 2])  #102 is two times the mean of Cooks-d, high leverage 
+
+
+# check for influence -- no influential obs
+
+ which(influence.measures(gamma_reduced_int)$is.inf[,'cook.d'])
+
+
+ #check fitted resids vs fitted, a well fit model will have no pattern
+
+scatter.smooth(predict(gamma_reduced_int, type='response'), rstandard(gamma_reduced_int, type='deviance', col='gray'))
+
+# check actual vs predicted values for target_amt, another check on model fit
+
+plot(density(linear_test$target_amt), ylim=c(0, .0008), main='Actual vs Fitted (red): Target_Amt')
+
+lines(density(predict(gamma_reduced_int, type='response')), col='red')
+
+```
+
+**7.0 Select Model**
+
+```{r}
+
+# build a table to compare results of gamma models
+
+col_names<-c('Gamma-No Interactions', 'Gamma-Interactions')
+
+glm_results<-rbind(glm1, glm2)
+
+(compare_gammas<- cbind(col_names, glm_results)%>%
+    dplyr::select(c(col_names, AIC, BIC, deviance))%>%
+    rename(Model = col_names)%>%
+    flextable()%>%
+     set_caption("Comparison of Gamma Model Results"))
+
+```
+**8.0 Evaluate Model on Test**
+
+
+```{r}
+
+#collect predictions
+
+predictions<-predict(gamma_reduced_int,linear_train, type='response')
+
+gamma_fit_plot<-cbind(linear_train, predictions)
+
+ggplot(gamma_fit_plot, aes(x=target_amt, y=predictions))+
+    geom_point()+
+    theme_minimal()
+
+```
+## 9.0 Summary##
 
 In general,
 the amount of payout is determined by such factors as:
@@ -1453,38 +1765,3 @@ the amount of payout is determined by such factors as:
 - Insured driver status
 - Cost of lost wages
 - Cost of damages to vehicle(s)
-
-
-
-
-To optimize model interpretability, it may be preferable
-to build a generalized linear model based on either a gamma or inverse gaussian distribution.
-
-
-
-
-
-
-
-
-
-
-
-
-##2. Training and Test Datasets##
-
-Prior to modeling, the dataset is randomly sampled to create a subset for model training (train_df) and model evaluation (test_df). 
-
-```{r}
-
-
-
-```
-
-
-
-
-
-##. Summary##
-
-To be completed
