@@ -6,7 +6,7 @@ Completed Workflow:
 
 * data preprocessing 
 * logistic regression models 
-* log-Normal and gamma models 
+* log-normal and gamma models 
 * summary 
 
 Results:
