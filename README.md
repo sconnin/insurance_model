@@ -2,12 +2,12 @@
 
 The purpose of this work is to estimate the probability that an individual (seeking auto insurance) will be in an accident and then to forecast the potential cost of an ensuing claim. A synthetic data set of ~ 8000 observations will be used to construct predictive models for this purpose. The use of synthetic data permits model development absent proprietary information, while also providing a heuristic for quantitative reasoning
 
-Workflow:
+Completed Workflow:
 
-* data preprocessing completed
-* Part 1. logistic regression models completed
-* Part 2. log-Normal and gamma models completed
-* summary completed
+* data preprocessing 
+* logistic regression models 
+* log-Normal and gamma models 
+* summary 
 
 Results:
 
