@@ -15,7 +15,7 @@ This study sought to classify drivers based on their probability of an auto acci
 
 Project Publication: https://rpubs.com/sconnin/856781
 
-insurance_model.Rmd = code for constructing part 1 models and report
+insurance_model.Rmd = project code 
 
 insurance_dataset.csv = raw data
 
