@@ -4,31 +4,33 @@ date: "1/11/22"
 author: "Sean Connin"
 output:
   html_document: 
-    toc: true
+    toc: TRUE
     toc-title: ""
     toc_depth: 3
-    toc_float:
-      collapsed: false
-      smooth_scroll: false
-    theme: united
+    toc_float: 
+      collapsed: TRUE
+      smooth_scroll: FALSE
+    number_sections: true
+    df_print: paged
+    code_folding: hide
+    theme: sandstone
     highlight: tango
-  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
 
 # set global options
 
-knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE, error=FALSE)
 
 ```
-##Project Description##
+# Project Description
 
-The purpose of this work is to estimate the probability that an individual (seeking auto insurance) will be in an accident and then to forecast the potential cost of an ensuing claim. A synthetic data set of ~ 8000 observations will be used to construct predictive models for this purpose. The use of synthetic data permits model development absent proprietary information, while also providing a heuristic for quantitative reasoning.
+The purpose of this work is to estimate the probability that an individual (seeking auto insurance) will be in an accident and then to forecast the potential cost of an ensuing claim. A synthetic data set of ~ 8000 observations will be used to construct predictive models for this purpose. The use of synthetic data permits model development absent proprietary information, while also providing a heuristic for quantitative reasoning. Further discussion regarding the dataset can be found in Section 7.
 
 The dataset includes two response variables. The first, 'target_flag', is scored as either a 1 or 0 indicating that an individual has or has not been in an accident, respectively. On this basis, a score of 1 is considered a 'positive' result and 0 a 'negative' result. The second response variable, 'target_amt' refers to the amount paid on a individual's claim given an accident occurred. Target_amt is a numerical variable ranging from $0 (no accident/claims) upward.   
 
-A binary logistic classification model will be constructed to estimate the probability of class membership (1 or 0) and a multiple linear regression model to predict payout cost in the event of an accident. This statistical approach builds on classical methods for model training/testing (which underlie more modern, machine learning, strategies for classification and prediction) and invites more explicit consideration of model assumptions and diagnostics. 
+A binary logistic classification model will be constructed to estimate the probability of class membership (1 or 0); log-normal and gamma regression models will be employed to predict payout cost in the event of an accident. This statistical approach builds on classical methods for model training/testing (which underlie more modern, machine learning, strategies for classification and prediction) and invites more explicit consideration of model assumptions and diagnostics. 
 
 The data include the following variables: 
 
@@ -63,7 +65,7 @@ The data include the following variables:
 The project workflow will be represented and discussed following the approach of
 [Wickham and Grolemund (2017)](https://r4ds.had.co.nz/):
 
-! [Alt text] (/Users/seanc/Documents/Data_Projects/insurance_model/images/tidymodel.jpg)
+![Project Workflow](/Users/seanc/Documents/Data_Projects/insurance_model/images/tidymodel.jpg)
 
 - Import: libraries, raw data
 - Tidy: cleaning, wrangling, tidy format
@@ -89,6 +91,7 @@ library(InformationValue) # optimize threshold
 library(caret) # modeling
 library(ROCR) #roc curve
 library(car) # marginal plots
+library(MASS) # use for gamma shape function
 
 
 ```
@@ -102,15 +105,11 @@ path <- "https://raw.githubusercontent.com/sconnin/insurance_model/main/insuranc
 raw <- read_csv(path)
 
 ```
-##1. Data Processing##
+# Data Processing and Holdout {.tabset}
 
-**1.1 Clean and Reformat Data**
+Data processing is required to put variables in tidy form for model building as well as to support initial exploration and visualization. Additional steps are  taken to facilitate interpretation of feature variables.    
 
-Data processing is required to put variables in tidy form for model building as 
-well as to support initial exploration and visualization. Additional steps are 
-taken to facilitate interpretation of feature variables.    
-
-The following processing steps are included below:
+The following processing steps are included here:
 
 - data storage as dataframe(s)
 - case consistency and removal of special characters
@@ -155,10 +154,9 @@ df<-raw%>%
 
 ```
 
-**1.2 Tabulate Count and Frequency of Target Variable**
+## Count and Frequency of Target Variable
 
-Recall that the variable target_flag indicates whether or not an individual was in an
-accident (1 = Yes, 0 = No).
+Recall that the variable target_flag indicates whether or not an individual was in an accident (1 = Yes, 0 = No).
 
 * target_flag (level = 0) includes 6008 observations and accounts for ~74% of the data.
 
@@ -187,7 +185,7 @@ df %>%
     set_caption("Count and Frequency of Target Levels")
 
 ```
-**1.3 Summary Statistics for Numerical and Categorical Variables**
+## Summary Statistics
 
 On the basis of the following statistical summaries we find:
 
@@ -259,15 +257,13 @@ df$car_age[df$car_age < 0] <- NA
 
 ```
 
-**1.4 Covariate Distributions**
+## Covariate Distributions
 
-Histograms and QQ-Plots indicate that distributions for 'target_flag', 'kidsdriv', 'homekids', 'yoj', 'income', 'oldclaim', 'clm_freq', and 'mvr_pts' depart from a normal model. This is confirmed using a Shapiro-Wilk test of normality for numerical values.
+Histograms and QQ-Plots indicate that distributions for 'target_flag', 'kidsdriv', 'homekids', 'yoj', 'income', 'oldclaim', 'clm_freq', and 'mvr_pts' depart from a normal model. This is confirmed using a Shapiro-Wilk test of normality for numerical values. Transformation of these variables may be desirable during model building. Log, square root, and polynomial transformations may be particularly helpful in this regard. 
 
-Transformation of these variables may be desirable during model building. Log, square root, and polynomial transformations may be particularly helpful in this regard. 
+From an interpretive stand-point, it's worth noting the high 0 value counts for the following covariates: 'tif', 'oldclaim', 'car_age', 'income', 'home_val'. Particularly the latter two. A 0 value for 'income' may indicate that an individual is unemployed and/or a student/dependent. A 0 value for 'home_val' may indicate that an individual is a renter, a dependent, or homeless. 
 
-From an interpretive stand-point, it's worth noting the high 0 value counts for the following covariates: 'tif', 'oldclaim', 'car_age', 'income', 'home_val'. Particularly the latter two. For example, a 0 value for 'income' may indicate that an individual is unemployed and/or a student/dependent. A 0 value for 'home_val' may indicate that an individual is a renter, a dependent, or homeless. 
-
-These details can be important in establishing the costs:benefits of insuring a driver. And their absence (as in this dataset) can limit the discriminatory ability of a model. 
+These details can be important in establishing the costs:benefits of insuring a driver. And their absence (as in this dataset) can limit the discriminatory ability of a classification model. 
 
 
 ```{r}
@@ -293,7 +289,7 @@ df%>%
     plot_normality()
 
 ```
-**1.5 Data Outliers**
+## Outliers
 
 The variables kidsrive, oldclaim, homekids, clm_freq, an yoj contain the highest percentage of outliers 
 (~6-17%, depending on target_flag level). The percentage of outliers is generally greater for observations
@@ -324,12 +320,9 @@ diagnose_outlier(target_1) %>%
     set_caption("Outlier Summary: Target_Flag = 1")
 ```
 
-**1.6 Missing Data**
+## Missing Data
 
-Our dataset includes missing observations in one categorical variable ('job') and six
-numerical variables ('car_age', 'home-val', 'yoj', 'income', 'age'). Across covariates 
-(i.e., predictor variables) the extent of missingness is < 6.5% of the total 
-observations. There are no obvious patterns in the missing data that warrant concern.
+The dataset includes missing observations in one categorical variable ('job') and six numerical variables ('car_age', 'home-val', 'yoj', 'income', 'age'). Across covariates (i.e., predictor variables) the extent of missingness is < 6.5% of the total observations. There are no obvious patterns in the missing data that warrant concern.
 
 ```{r }
 
@@ -364,11 +357,9 @@ df %>%
 
 
 ```
-**1.7 Impute Missing Values**
+## Impute Missing Values
 
-Given the relatively limited extent of missing data, an argument can be made for
-imputing these values rather than removing the observations during model building. 
-A variety of imputation methods are availabe for this purpose. They include:
+Given the relatively limited extent of missing data, an argument can be made for imputing these values rather than removing the observations during model building.A variety of imputation methods are availabe for this purpose. They include:
 
 - random selection of a value(s) between the minimum and maximum value of a covariate
 - replacement with the mean, median, or mode of the covariate's distribution
@@ -382,8 +373,7 @@ The following methods are selected for our model on the basis of initial experim
 - 'car _age': mice
 - 'home_val', 'yoj', 'income', 'age': recursive partitioning
 
-Comparison of density plots for original and imputed values show a good fit 
-for each of the numerical covariates.
+Comparison of density plots for original and imputed values show a good fit for each of the numerical covariates.
 
 ```{r}
 
@@ -446,8 +436,7 @@ df%<>%mutate_if(is.numeric, round)
 
 
 ```
-We can also impute missing values for categorical variables. In this case, the 
-mice method is used to impute values for the variable, 'job'. 
+We can also impute missing values for categorical variables. In this case, the mice method is used to impute values for the variable, 'job'. 
 
 ```{r}
 
@@ -466,45 +455,25 @@ df<-cbind(df,job)
 df$job<-factor(df$job)
 
 ```
-Save csv with imputed values 
 
-```{r}
+## Pairwise Comparisons
 
-#df%<>%mutate_at(vars(target_flag), funs(factor)) # convert target_flag to factor
+Pairwise comparisons provide a method to identify collinear relationships between covariates. Covariates that display high collinearity (e.g., correlation coefficients < -.50  or > .50) can reduce the precision and increase the sensitivity of model coefficients due to lack of independence.     
 
-#write.csv(df, 'df_clean.csv', row.names=FALSE)
-
-```
-
-**1.8 Pairwise Comparisons**
-
-Pairwise comparisons provide a method to identify collinear relationships between
-covariates. Covariates that display high collinearity (e.g., correlation coefficients
-< -.50  or > .50) can reduce the precision and increase the sensitivity of model 
-coefficients due to lack of independence.     
-
-To refine our analyses, pairwise comparisons are assessed following removal of 
-0 values. Our results indicate:
+To refine our analyses, pairwise comparisons are assessed following removal of 0 values. Our results indicate:
 
 - high positive correlation between 'home_val' and 'income', coeff ~ 0.96
 - high positive correlation between 'homekids' and 'homedrive', coeff ~ 0.62
 - moderate positive correlation between 'home_val' and 'car_age', coeff ~ 0.54
 - moderate positive correlation between 'income' and 'car_age', coeff ~ 0.54
 
-As expected, there is also a strong association between 'income' (numerical var.) 
-and 'job' type (factor var.) - based on a kruskal-Wallis rank sum test.
+As expected, there is also a strong association between 'income' (numerical var.) and 'job' type (factor var.) - based on a kruskal-Wallis rank sum test.
 
-Both 'home_value' and 'income' have similar levels of missing data. An argument can be
-made for dropping one or the other from the dataset in order to simplify 
-our feature selection process and improve model precision. This may also be
-true for 'income' and 'job' type.
+Both 'home_value' and 'income' have similar levels of missing data. An argument can be made for dropping one or the other from the dataset in order to simplify our feature selection process and improve model precision. This may also be true for 'income' and 'job' type.
 
-Associations between 'home_val' and 'car_age' and 'income' and 'car_age' are less 
-concerning, due to lower correlation coefficients and higher variability. See
-plots below.
+Associations between 'home_val' and 'car_age' and 'income' and 'car_age' are less concerning, due to lower correlation coefficients and higher variability. See plots below.
 
-Less clear is the association between 'homekids' and 'kidsdriv'
-given their narrow range of integer values. 
+Less clear is the association between 'homekids' and 'kidsdriv'given their narrow range of integer values. 
 
 We will revisit options for feature removal during the model building process.
 
@@ -559,25 +528,18 @@ df%>%kruskal.test(income~job) # assess covariance with Kruskal-Wallis rank sum t
 
 
 ```
-We can visually assess relationships between categorical variables and 
-our response variable, 'target-flag', using mosaic plots. In this case,
-a relationship is indicated by relative differences in variable 
-levels for each level of 'target-flag'.
 
-Note that the width of plot columns is proportional to the count of observations
-for each level of the variable plotted on the horizontal axis. And the vertical
-lenght is proportional to the count in the second variable (i.e., 'target_flag')
-within each level of the first variable. 
+We can visually assess relationships between categorical variables and our response variable, 'target-flag', using mosaic plots. In this case, a relationship is indicated by relative differences in variable levels for each level of 'target-flag'.
+
+Note that the width of plot columns is proportional to the count of observations for each level of the variable plotted on the horizontal axis. And the vertical length is proportional to the count in the second variable (i.e., 'target_flag') within each level of the first variable. 
 
 On this basis we find that:
 
-- All categorical variables except 'sex' and 'red-car' display relationships 
-to 'target_flag'.
+- All categorical variables except 'sex' and 'red-car' display relationships to 'target_flag'.
 
-An argument can be made for dropping 'sex and 'red_car' from our set of covariates
-in order to streamline the modeling process. 
+An argument can be made for dropping 'sex and 'red_car' from our set of covariates in order to streamline the modeling process. 
 
-```{r }
+```{r results = 'hide' }
 
 # Subset categorical variables into a df of factor vars
 
@@ -596,12 +558,10 @@ predictors <- all_of(names(mosaic)[2:11])
 
 
 ```
-Boxplots make an effective visual tool to assess relationships between 'target_flag'
-and our numerical covariates. 
 
-On this basis, it appears that 'bluebook', 'tif', 'clm_freq', 'mvr_pts', 'car_age',
-'home_val', and 'income' vary by level of target_flag. The presence of outliers,
-however, argues for caution in this interpretation. 
+Boxplots make an effective visual tool to assess relationships between 'target_flag' and our numerical covariates. 
+
+On this basis, it appears that 'bluebook', 'tif', 'clm_freq', 'mvr_pts', 'car_age', 'home_val', and 'income' vary by level of target_flag. The presence of outliers, however, argues for caution in this interpretation. 
 
 
 ```{r}
@@ -633,20 +593,14 @@ box_plots<-map(explain, ~box_fun(.x)) #creates a list of plots using purrr
 
 plot(reduce(box_plots,`+`)) # layout with patchwork
 ```
-**1.9 Final Variable Selections**
 
-Before forming training and testing datasets, we will drop 'home_val' and 
-'target_amt'. Variability in the model explained by 'home_val' will be largely
-explaine by 'income'. And 'target_amt'  is not relevant to our classification 
-process.
+## Variable Selection
 
-We will also collapse the variable 'job' into two levels: 'non-white-collar' and 
-'white-collar'. While this may result in a slight loss of discriminatory power in 
-our model(s) it does lend to model simplification.
+Before forming training and testing datasets, we will drop 'home_val' and  'target_amt'. Variability in the model explained by 'home_val' will be largely explained by 'income'. And 'target_amt'  is not relevant to our classification process.
 
-Rather than make any additional a-priori choices to drop other covariates, we will 
-automate variable selection (via. Akaike Information Criterion) as part of the 
-modeling process.  
+We will also collapse the variable 'job' into two levels: 'non-white-collar' and 'white-collar'. While this may result in a slight loss of discriminatory power in the model(s) it does lend to model simplification.
+
+Rather than make any additional a-priori choices to drop other covariates, we will automate variable selection (via. Akaike Information Criterion) as part of the modeling process.  
 
 
 ```{r}
@@ -662,9 +616,9 @@ base_df%<>%
 #write.csv(base_df, 'base_df.csv', row.names=FALSE)    
 ```
 
-##2. Training and Test Datasets##
+## Training and Test Datasets
 
-Prior to modeling, the dataset is randomly sampled to create a subset for model training (train_df) and model evaluation (test_df). 
+Prior to modeling, the dataset is randomly sampled to create a subset for model training ('train_df') and model evaluation ('test_df'). 
 
 ```{r}
 # Base_df<-read.csv('base_df.csv') # hold here to assist model dev 
@@ -698,10 +652,9 @@ test_df%>%count(target_flag)%>%
 
 ```
 
-##3. Logistic Regression Models##
+# Classification Models {.tabset}
 
-Selection of a logistic classifier will be based on comparison of four 
-models:
+Selection of a logistic classifier will be based on comparison of four models:
 
 1. Null model - the class probability p is independent of any terms (covariates) and is 
 the same for all data points. Only one parameter (the intercept) is fit. 
@@ -712,8 +665,7 @@ meet model requirements and improve fit.
 
 We will assume that the null and full models are valid for the purposes of model comparison. Validity will be inferred from model diagnostics for the reduced and transformed model. 
 
-To be considered valid, a binary logistic model should meet the following
-conditions:
+To be considered valid, a binary logistic model should meet the following conditions:
 
 - the response variable is binary.
 - observations are independent of each other.
@@ -721,7 +673,7 @@ conditions:
 - covariates and the logit (log odds) are linearly related.
 
 
-**3.1 Null Model: Logistic Regression**
+## Null Model: Logistic 
 
 ```{r}
 
@@ -740,10 +692,9 @@ null_actuals<-as.numeric(as.character(train_df$target_flag))
 AUROC(null_actuals, null_predicted)
 ```
 
-**3.2 Full Model: Logistic Regression**
+## Full Model: Logistic
 
-Several terms included in the full model are not significant - 'homekids', 'sex', 
-'red_car', 'car_age', 'age'. 
+Several terms included in the full model are not significant - 'homekids', 'sex', 'red_car', 'car_age', 'age'. 
 
 ```{r}
 
@@ -760,10 +711,9 @@ full_actuals<-as.numeric(as.character(train_df$target_flag))
 AUROC(full_actuals, full_predicted)
 
 ```
-**3.3 Reduced Model: Logistic Regression **
+## Reduced Model: Logistic {.tabset}
 
-The reduced model will be constructed using the Akaike Information Criterion to 
-remove covariates that are not statistically significant. 
+The reduced model will be constructed using the Akaike Information Criterion to remove covariates that are not statistically significant. 
 
 ```{r}
 
@@ -778,36 +728,20 @@ summary(reduced)
 reduced_stats<-glance(reduced) # collect stats for model comparisons
 
 ```
-**3.3.1 Diagnostics: Reduced Model**
+### Diagnostics
 
-The ability of a binary classifier to discriminate class membership can be 
-evaluated using a confusion (error) matrix as well as a receiver operating 
+The ability of a binary classifier to discriminate class membership can be evaluated using a confusion (error) matrix as well as a receiver operating 
 characteristic (ROC curve).
 
-A confusion matrix for binary classifiers consists of a 2x2 table with counts of 
-actual and predicted classes for a response variable; providing a measure of
-correct (true positives, true negatives) and incorrect classifications 
-(false positives, false negatives) at a given probability threshold.
+A confusion matrix for binary classifiers consists of a 2x2 table with counts of actual and predicted classes for a response variable; providing a measure of correct (true positives, true negatives) and incorrect classifications (false positives, false negatives) at a given probability threshold.
 
-The receiver operating characteristic plots a model's true positive rate 
-(i.e., sensitivity|recall|probability of detection) against the false positive 
-rate (i.e., 1-specificity|probability of false detection) at various probability 
-thresholds. Importantly, the area under the ROC curve (AUC) offers a measure of 
-model accuracy and can be used as a statistic for model comparison. 
+The receiver operating characteristic plots a model's true positive rate (i.e., sensitivity|recall|probability of detection) against the false positive rate (i.e., 1-specificity|probability of false detection) at various probability thresholds. Importantly, the area under the ROC curve (AUC) offers a measure of model accuracy and can be used as a statistic for model comparison. 
 
-The reduced model correctly classifies ~ 75% of the positive class and ~67% of
-the negative class for 'target_flag' at a probability threshold of 0.51. In this
-instance, the selected threshold optimizes for balance in true positive and 
-false positive rates. 
+The reduced model correctly classifies ~ 75% of the positive class and ~67% of the negative class for 'target_flag' at a probability threshold of 0.51. In this instance, the selected threshold optimizes for balance in true positive and false positive rates. 
 
-Depending on claim costs, it may be advisable to lower the threshold such that
-more positive observations (crashes) are correctly classified at the cost of
-fewer correct negative classifications. Translated, this reflects a cost:balance
-between potential payouts and income that can guide a carrier's determination of 
-coverage for an individual driver. 
+Depending on claim costs, it may be advisable to lower the threshold such that more positive observations (crashes) are correctly classified at the cost of fewer correct negative classifications. Translated, this reflects a cost:benefit between potential payouts and income that can guide a carrier's determination of coverage for an individual driver. 
 
-The AUC and other measures of performance for the reduced model are discussed in
-the model selection section. 
+The AUC and other measures of performance for the reduced model are discussed in the model selection section. 
 
 ```{r}
 
@@ -870,16 +804,11 @@ plotROC(actuals, predicted)
 
 ```
 
-**3.3.2 Reduced Model: Overdispersion**
+### Overdispersion
 
-As part of the diagnostic process, we check the model residuals for evidence of
-overdispersion. This occurs when the residuals are more variable than expected
-for a binomial distribution. 
+As part of the diagnostic process, we check the model residuals for evidence of  overdispersion. This occurs when the residuals are more variable than expected for a binomial distribution. 
 
-Overdispersion can be evaluated by dividing a model's residual deviance by the 
-degrees of freedom. A value close to 1 indicates that there is no overdispersion.
-A greater value indicates otherwise; in which case a negative binomial model may
-be more appropriate. 
+Overdispersion can be evaluated by dividing a model's residual deviance by the degrees of freedom. A value close to 1 indicates that there is no overdispersion. A greater value indicates otherwise; in which case a negative binomial model may be more appropriate. 
 
 There is no evidence of overdispersion in the reduced model.
 
@@ -897,17 +826,17 @@ pchisq(summary(quasi_model)$dispersion * reduced$df.residual,
  reduced$df.residual, lower = F)  
 ```
 
-**3.3.3 Reduced Model: Outliers and Infuential obs**
+### Influential Observations
 
-The presence of influential outliers (outliers with high leverage) can negatively
-affect model results. 
+The presence of influential outliers (outliers with high leverage) can negatively affect model results. 
 
-Influence can be evaluated on the basis of a model's 
-[standardized residuals](https://www.statology.org/standardized-residuals/) and 
-[Cook's distance](http://www.sthda.com/english/articles/36-classification-methods-essentials/148-logistic-regression-assumptions-and-diagnostics-in-r/).
+Influence can be evaluated on the basis of a model's:
 
-While the majority of covariates contain outliers, there is little evidence for 
-influential outliers (excepting obs. 5101) in the training set 
+- [standardized residuals](https://www.statology.org/standardized-residuals/) and 
+
+- [Cook's distance](http://www.sthda.com/english/articles/36-classification-methods-essentials/148-logistic-regression-assumptions-and-diagnostics-in-r/).
+
+While the majority of covariates contain outliers, there is little evidence for influential outliers (excepting obs. 5101) in the training set 
 (i.e., st.resid <3 stdev & cooksd < 1). 
 
 
@@ -939,14 +868,11 @@ reduced_df$data %>%
 
 
 ```
-**3.3.4 Reduced Model: linearity of numerical variables vs. logit**
+### Linearity
 
-Recall that linearity between each numerical covariate and the logit is one 
-requirement of a valid logistic model. 
+Recall that linearity between each numerical covariate and the logit is one requirement of a valid logistic model. 
 
-The bivariate plots below indicate this requirement is met for most of the 
-covariates, with the possible exception of 'travtime' and 'oldclaim'. These 
-variables may benefit from transformation. 
+The bivariate plots below indicate this requirement is met for most of the covariates, with the possible exception of 'travtime' and 'oldclaim'. These variables may benefit from transformation. 
 
 ```{r}
 
@@ -979,12 +905,9 @@ plot(reduce(linear_plots,`+`)) # reduce for single print
 
 ```
 
-**3.3.5. Reduced Model: Collinearity**
+### Collinearity
 
-Another requirement of a valid logistic model is the absence of multicollinearity
-among covariates. One measure of multicollinearity is the Variance Inflation 
-Factor (VIF). A high VIF value (e.g. 10) for a covariate indicates that it is
-highly collinear with other covariates in the model. 
+Another requirement of a valid logistic model is the absence of multicollinearity among covariates. One measure of multicollinearity is the Variance Inflation  Factor (VIF). A high VIF value (e.g. 10) for a covariate indicates that it is highly collinear with other covariates in the model. 
 
 There is no evidence of problematic multicollinearity in the reduced model. 
 
@@ -993,21 +916,13 @@ There is no evidence of problematic multicollinearity in the reduced model.
 car::vif(reduced)
 ```
 
-**3.3.6. Reduced Model: Independence of Residuals**
+### Independence 
 
-A final model requirement is the independence of observations. This can be
-assess by plotting the model residuals against the linear predictor (i.e., combination
-of coefficients and covariates). Independence is indicated by the absence of 
-pattern in the resulting plot. 
+A final model requirement is the independence of observations. This can be assess by plotting the model residuals against the linear predictor (i.e., combination of coefficients and covariates). Independence is indicated by the absence of pattern in the resulting plot. 
 
-There does appear to be some curvature in the plot of residuals vs linear
-predictor for the reduced model that may point to a departure from independence. 
-This might result, for example, from grouping effects among categorical 
-covariates. 
+There does appear to be some curvature in the plot of residuals vs linear predictor for the reduced model that may point to a departure from independence. This might result, for example, from grouping effects among categorical covariates. 
 
-Given that the plotting pattern is not severe and that the model serves a 
-predictive (vs. explanatory) purpose, there is not sufficient evidence to reject
-the model.
+Given that the plotting pattern is not severe and that the model serves a predictive (vs. explanatory) purpose, there is not sufficient evidence to reject the model.
 
 ```{r }
 
@@ -1022,43 +937,29 @@ plot(residuals~linpred, diag, xlab = "linear predictor")
 
 ```
 
-**3.3.7 Reduced Model: Goodness of Fit - Marginal Plots**
+### Model Fit 
 
-The reduced model is considered valid on the basis of requirements described 
-for logistic regression. 
+The reduced model is considered valid on the basis of requirements described for logistic regression. 
 
-The 'goodness' of model fit can be readily evaluated from marginal plots for each variable. Marginal plots graph actual and conditional probabilities (estimated by the model) 
-for each covariate relative to the response variable. The resulting curves align 
-closely in a model that fits the data well.
+The 'goodness' of model fit can be readily evaluated from marginal plots for each variable. Marginal plots graph actual and conditional probabilities (estimated by the model) for each covariate relative to the response variable. The resulting curves align closely in a model that fits the data well.
 
-The reduced model provides a good fit to the data. Although some departure
-is observed for actual and conditional probabilities in the plots for 'travtime',
-'bluebook', and 'age'. These departures are not severe and may be lessened by
-transforming these features. 
+The reduced model provides a good fit to the data. Although some departure is observed for actual and conditional probabilities in the plots for 'travtime', 'bluebook', and 'age'. These departures are not severe and may be lessened by transforming these features. 
  
 ```{r}
 marginals_reduced<-mmps(reduced,main=NULL)
 ```
 
-**3.4 Transformation Model**
+## Transformation Model {.tabset}
 
-The transformation model includes terms from the reduced model with
-transformations to reduce skew in select covariates. On this basis, 
-'travtime' and 'bluebook' will be log transformed while 'tif' and 'income'
-will be square root transformed. 
+The transformation model includes terms from the reduced model with transformations to reduce skew in select covariates. On this basis, 'travtime' and 'bluebook' will be log transformed while 'tif' and 'income' will be square root transformed. 
 
-This transformations follow from earlier model trials (not shown here) and 
-experimentation. 
+This transformations follow from earlier model trials (not shown here) and experimentation. 
 
-All covariates included in the transformation model are significant at the 
-.05 level. 
+All covariates included in the transformation model are significant at the .05 level. 
 
-The transformation model correctly classifies ~ 80% of the positive class and ~68% of
-the negative class for 'target_flag' at a probability threshold of 0.21 - optimizing
-for low misclassification error. The AUC is ~ .81, similar to the reduced model.
+The transformation model correctly classifies ~ 80% of the positive class and ~68% of the negative class for 'target_flag' at a probability threshold of 0.21 - optimizing for low misclassification error. The AUC is ~ .81, similar to the reduced model.
 
-The transformation model is valid (diagnostics not included for the purpose of 
-brevity).
+The transformation model is valid (diagnostics not included for the purpose of brevity).
 
 ```{r fig.align='center', fig.height=10,fig.width=10, message = FALSE}
 
@@ -1077,11 +978,9 @@ trans_stats<-glance(trans) # save stats for model comparisons
 
 
 ```
-**3.4.1 Transformation Model: Diagnostics **
+### Diagnostics 
 
-Tests of model validity for the transformation model are comparable to the reduced 
-model and, to avoid repetition, are not reported here. Diagnostics for model
-performance are included below and in section 4. 
+Tests of model validity for the transformation model are comparable to the reduced model and, to avoid repetition, are not reported here. Diagnostics for model performance are included below and in Section 4. 
 
 ```{r}
 
@@ -1141,43 +1040,30 @@ plot(perf_trans, colorize = TRUE, main = "ROC curve for logistic regression on i
 
 plotROC(trans_actuals, trans_predicted)
 ```
-**3.4.2 Transformed Model: Goodness of Fit **
+### Model Fit 
 
-Marginal plots for show improvements in model fit with the transformations 
-selected for 'travtime', 'bluebook', 'tif', and 'income'.
+Marginal plots for show improvements in model fit with the transformations selected for 'travtime', 'bluebook', 'tif', and 'income'.
 
 ```{r}
 marginals_trans<-mmps(trans,main=NULL)
 ```
 
-##4. Model Selection##
+## Model Selection
 
-There are a variety of methods to aid model selection, both quantitative and
-qualitative. Here selection will proceed using a cross-section of diagnostics 
-that aim for:
+There are a variety of methods to aid model selection, both quantitative and qualitative. Here selection will proceed using a cross-section of diagnostics that aim for:
 
 - the lowest AIC and/or BIC value
 - the smallest standard errors
 - the lowest residual deviance
 - the highest AUC scores
 
-It's worth noting that diagnostics for the transformation model produced similar
-results as the reduced model. Both are considered valid.
+It's worth noting that diagnostics for the transformation model produced similar results as the reduced model. Both are considered valid.
 
-From the first table below (i.e., comparison of model results) it is clear that 
-the transformed model is an appropriate choice. It produces the lowest AIC & BIC 
-values and the lowest residual deviance. Additionally, the AUC for our 
-transformed model is equivalent to the reduced and full models (.81) and greater 
-than the null model (.50). It does, however, produce higher std. 
-errors for transformed covariates. 
+From the first table below (i.e., comparison of model results) it is clear that the transformed model is an appropriate choice. It produces the lowest AIC & BIC values and the lowest residual deviance. Additionally, the AUC for our transformed model is equivalent to the reduced and full models (.81) and greater than the null model (.50). It does, however, produce higher standard. errors for transformed covariates. 
 
-Other measures of performance are included in the classification metrics table 
-below (reduced and transformation models). Note, however, that they are specific 
-to the probability thresholds selected for each model. And are not considered
-criterion for model selection.
+Other measures of performance are included in the classification metrics table below (reduced and transformation models). Note, however, that they are specific to the probability thresholds selected for each model. And are not considered criterion for model selection.
 
-Additional tests can be performed to confirm our model choice (e.g., likelihood 
-ratio tests for nested models) but are not necessary. 
+Additional tests can be performed to confirm our model choice (e.g., likelihood ratio tests for nested models) but are not necessary. 
 
 
 ```{r}
@@ -1209,20 +1095,13 @@ final_comp<-rbind(reduced_metrics, trans_metrics)
     set_caption("Classification Metrics: Reduced & Transformed Models"))
 ```
 
-##5. Logistic Regression Model Evaluation##
+## Model Evaluation:
 
-To assess how well the transformation model generalizes, we apply it to the 
-test dataset and summarize the results. Interestingly, the AUC produced on the 
-test set has increased (.82) relative to the training set - indicating that the
-model generalizes well. 
+To assess how well the transformation model generalizes, we apply it to the test dataset and summarize the results. Interestingly, the AUC produced on the test set has increased (.82) relative to the training set - indicating that the model generalizes well. 
 
-Assume for a moment that an insurer seeks to minimize their risk of
-claim payouts (relative to client payments). In this instance, they might 
-elect to lower the probability threshold used to classify new clients. 
+Assume for a moment that an insurer seeks to minimize their risk of claim payouts (relative to client payments). In this instance, they might elect to lower the probability threshold used to classify new clients. 
 
-Below, our results for model performance reflect a cutoff of ~0.25. The model 
-classifies 90% of our positives (target_flag = 1, crash) correctly, as compared 
-to 49% of our negatives (target_flag = 0, no accidents).
+Below, our results for model performance reflect a cutoff of ~0.25. The model classifies 90% of our positives (target_flag = 1, crash) correctly, as compared to 49% of our negatives (target_flag = 0, no accidents).
 
 Other related measures of performance are included in the metrics table.
 
@@ -1299,22 +1178,36 @@ plotROC(actuals_test, predicted_test)
 
 ```
 
-##6.0  Linear Model ##
+# Linear Models {.tabset}
 
-We can now build a linear model to predict payout cost (target_amt) to a driver 
-in the event of a crash. 
+We can now build a linear model to predict payout cost ('target_amt') to a driver in the event of a crash. 
 
-First, build a new a new training and test set (using random selection)
-for this purpose.
+It's worth noting that there are a variety of examples in the published literature of auto insurance claim prediction based on log-normal and/or gamma regression models. This reflects the fact that the claim data are typically right skewed and positive. Both models will be constructed and compared here. 
 
+As an aside, a poisson model can also be used where the response is right skewed and positive but does limit the response to integer values.  
 
-distinction between avg payout over set of claims or an individual claim --- indv, see o vals for oldclm and clm_freq
+First, we build a new training and test set for linear modeling starting with a more limited set of covariates. The latter include:
 
-common sense - bluebook, car_age, car_type, oldclaim/clm_freq = avg payout in past, predictor for future
+- 'oldclm'
+- 'clm_freq'
+- 'bluebook' 
+- 'car_age'
+- 'car_type'.
 
-value_clm = target_amt/bluebook -- use this to parse out payment for damages other than collision, filtered 282 obs
+Other variables are omitted owing to the absence of any theoretical relationship to payout cost. 
 
-Note - there are no pairwise correlations -.5<>.5
+To further simplify our model, we construct an average past payout('avg-clm') for each driver as the ratio of 'oldclaim':'clm_freq' - assigning a value of 0 to 'avg_clm' where no claims have been filed previously. 
+
+The extent to 'target_amt' includes payment for damages other than vehicular (e.g., medical) is unclear. To better focus on the vehicular component, we construct another new variable, 'value_clm', as the ratio of 'target_amt':'bluebook'. In this context, values > 1 indicate payments in excess of vehicle market value. These observations will be dropped from the analyses. 
+The final set of covariates used for model construction are:
+
+-  'avg_clm'
+- 'bluebook' 
+- 'car_age'
+- 'car_type'
+
+It's worth noting that there are no pairwise correlations between these variables that raise concerns owing to multicolinearlity. 
+
 
 ```{r}
 
@@ -1331,7 +1224,7 @@ linear_df<-df%>%
 
 linear_df%<>%
     filter(value_clm <100)%>%
-    select(-value_clm)
+    dplyr::select(-value_clm)
 
 
 linear_df%>%
@@ -1353,21 +1246,21 @@ linear_test <- linear_df[-trainIdx,]
 
 ```
 
-**6.1 Characterize Response Variable: Target Amt**
+## Data Exploration {.tabset}
 
-The response variable (target_amt) is highly right skewed. This can be 
-problematic when constructing a multiple regression model using ordinary 
-least squares. 
+### Response Variable: Distribution
 
-options for analyzing skewed outcomes that are potentially heterodscedastic - robust statistics (e.g., weighted least squares) transformation of the response variable(log). The former are appropriate for analyses involving few covariates.Transformations can lead to interpretive issues for the response on the original scale.
+The response variable, 'target_amt', is highly right skewed and is positive across all observations. This can be problematic when constructing a multiple regression model using ordinary  least squares. As mentioned previously, both log-normal and gamma regression models can be used to model this form of data (see examples below). However, the former cannot be interpreted on the original scale of the data without
+back-transformation and must also adhere to the requirements of ordinary least squares. In instances where heteroscedasticity is apparent a log-normal model may be modified using weighted least squares (smaller datasets) or robust techniques. 
 
-Generalized linear models do not require normally distributed errors and homoscedasticity. Gaussian (variance unrelated to mean - homosced), gamma (pos skew, nonneg, variance proportional to square of the means), and inverse-Gaussian distributions (variance proportional to mean cubed) can be specified for continuous responses. 
+As a generalized linear model, gamma regression allows interpretation of the results on the original scale and does not require normally distributed errors and/or constant variance (variance is proportional to the square of the means). Two link functions are available for building gamma models - inverse & log. An inverse link is only applicable where the response varies between 0-1. The log link will be used for gamma-based models constructed here. 
 
-For gamma family - link function can be specified with a log or an inverse transformation function (allows us to get expected value in original scale). Explore these two.
+Gamma regression has been used previously to model auto insurance claims. In these instances, the response variable is often an average claim amount or some measure of claim severity. The dataset used here contains payouts for individual claims. Thus the most relevant predictors will likely be 'bluebook', 'car_age', and 'car_type'. The term, 'avg_clm' will be relevant provided decisions regarding current payout are based, in part, on previous payouts to a driver. 
 
-Insurance claim prediction:
+Prior Examples:
 
-McCullagh and Nelder, Generalized Linear Models. 2nd ed.(http://www.utstat.toronto.edu/~brunner/oldclass/2201s11/readings/glmbook.pdf) 
+[McCullagh and Nelder, 1983](http://www.utstat.toronto.edu/~brunner/oldclass/2201s11/readings/glmbook.pdf) 
+[Mohammad and McGovern, 2020](https://files.eric.ed.gov/fulltext/ED607605.pdf)
 
 
 ```{r}
@@ -1411,23 +1304,14 @@ linear_train$target_amt%>%
 
 
 ```
-**6.2 Bivariate Plots**
+### Bivariate Plots
 
-Included below is a full set of bivariate plots for numerical and factor
-predictors and our response, 'target_amt'. 
+Included below is a full set of bivariate plots for numerical and factor predictors and our response, 'target_amt'. It is difficult to discern a linear relationship between numerical covariates and 'target_amt'. In contrast, there does appear to be a weak linear relationship between levels of car_type and 'target_amt' - with the highest payouts applied to panel trucks.
 
-Note that ~80% of the paid claims (target_amt) total less than $10,000. 
-To assist visual inspection, this latter value will be used as ceiling
-in the scatterplots below.
+It's worth noting that ~80% of the paid claims are less than $10,000 each. And the highest payouts are associated with newer vehicles, few -to- no past claims, and mid-range bluebook values. It appears that payouts are proportionally less for
+high-value vehicles.
 
-It is difficult to discern a linear relationship between numerical covariates
-and 'target_amt'. In contrast, there does appear to be a linear relationship 
-between levels of car_type and 'target_amt'. 
-
-
-highest payouts - young cars, middle bb value, few to no past clms
-
-```{r fig.height=3 fig.width=20}
+```{r}
 
 
 xvar_names<-linear_train%>%
@@ -1464,15 +1348,12 @@ linear_train%>%
 
 ```
 
-**6.3 Interactions**
+### Interactions
 
-Prior to modeling, we can visually assess potential covariate interactions as 
-predictors of 'target_amt'. It appears that 'car_type' influences the 
-relationship between each numerical covariate and 'target_amt'. In contrast,
-there to not appear to be any interactions among numerical 
-covariates in relation to 'target_amt'
+Prior to modeling, we can visually assess potential covariate interactions as predictors of 'target_amt'. It appears that 'car_type' influences the 
+relationship between each numerical covariate and 'target_amt'. In contrast, there do not appear to be any interactions among numerical covariates in relation to 'target_amt'
 
-```{r fig.width=10, fig.height=4}
+```{r}
 
 # evaluate interactions between numerical variables and car_type using a linear 
 #model
@@ -1504,37 +1385,24 @@ coplot(target_amt~bluebook|car_age, panel = panel.car, col='blue', rows=1, data=
 coplot(target_amt~car_age|avg_clm, panel = panel.car, col='blue', rows=1, data=filter_df)
 
 ```
-**6.4 Linear GLMZ: Null Model**
+## Log-Normal Model: NULL
 
-Given that the response variable ('target_flag') consists of positive values
-and is strongly right skewed, several options for model building are available. 
-They include the following generalized linear forms:
-
-- log transformed gaussian model (link = identity)
-- gamma model (link = log or inverse)
-- poisson model (link = log)
-
-A gaussian model with a log transformed response may be difficult to interpret,
-particularly if additional steps are required to address heteroscedasticity. A
-gamma model is well suited to the modeling task and interpretation is straight-
-forward. In this case, a log link is a good starting choice and is necessary
-for a multiplicative model(i.e., interactions). A poisson is a possibility but
-is restricted to integer values for target_amt. 
-
-We will start with a null model with a log transformed response and assume that
-it is valid (unlikely).
+We will start with a null model with a log transformed response (log-normal model).
  
 
 ```{r}
 
 # note: gaussian glm with default link (identity) is equivalent to OLS
 
-null_glm <- glm(log(target_amt) ~ 1, family='gaussian', data=linear_train)
+null_lm <- lm(log(target_amt) ~ 1, data=linear_train)
 
-summary(null_glm)
+summary(null_lm)
 
 ```
-**6.5 Linear Model: Full w/ Main Effects**
+## Log-Normal Model: Full
+
+Next we build a full log-normal model with main effects. Only 'bluebook' and 'car_type' are significant at an alpha = 0.5. The
+adjusted error is only 0.03. 
 
 ```{r}
 
@@ -1545,11 +1413,19 @@ summary(full_lm)
 plot(full_lm)
 
 ```
-**6.6 Linear Model: Reduced, w/ Interactions**
+## Log-Normal Model: Reduced w/ Interactions
+
+Building further a the log-normal model further, 'car_type' is included as an interaction term. And variable selection is automated using AIC. 
+
+The reduced model has the following form:
+
+*log(target_amt) ~ bluebook + car_type + avg_clm + bluebook:car_type + car_type:avg_clm*
+
+Relative to the full model, the residual standard error has decreased slightly and the adjusted r-square is now 0.04. However, it appears that requirements of constant variance and normality have not been met for the model residuals. There is also a poor fit between the actual and predicted observations for 'target_amt'
 
 ```{r}
 
-gauss_interact <- lm(log(target_amt) ~ bluebook*car_type+car_age*car_type+avg_clm*car_type, family='gaussian', data=linear_train)
+gauss_interact <- lm(log(target_amt) ~ bluebook*car_type+car_age*car_type+avg_clm*car_type, data=linear_train)
 
 interact_aic<-step(gauss_interact) # reduced model  -->log(target_amt) ~ bluebook + car_type + avg_clm + bluebook:car_type + car_type:avg_clm
 
@@ -1569,7 +1445,9 @@ lines(density(fit$.fitted), col='red')
 
 
 ```
-**6.7 linear model: Gaussian reduced and predictors transformed**
+## log-Normal Model: Transformed 
+
+Transforming the model covariates can help address violations in an ordinarly least squares model. From the results below, log transforming the covariates did not lead to a valid model. 
 
 ```{r}
 
@@ -1591,7 +1469,28 @@ plot(trans_aic)
 
 ```
 
-**6.8 GLMZ Model: Gamma (link=log), Reduced**
+## Gamma Model: Null
+
+The first gamma regression model will be of a null form with a log link function. 
+
+
+```{r}
+
+gamma_null<- glm(target_amt ~ 1, family=Gamma(link=log), data=linear_train)
+
+summary(gamma_null)
+
+glm1<-glance(gamma_null)
+
+```
+
+## Gamma Model: Reduced 
+
+Forgoing a full gamma model, we construct a reduced model with main effects using AIC for variable selection. 
+
+the reduced model has the following form:
+
+*glm(target_amt ~ bluebook)*
 
 ```{r}
 
@@ -1601,18 +1500,27 @@ gamma_reduced<-step(gamma) # reduced glm(target_amt ~ bluebook)
 
 summary(gamma_reduced)
 
-glm1<-glance(gamma_reduced)
+glm2<-glance(gamma_reduced)
 
 ```
 
-**6.8.1 Diagnostics: Gamma Reduced**
+### Diagnostics
 
-constant variance perhaps
-independence confirmed
+The requirements for a valid glm model are explored below and summarized here for the reduced gamma model. 
+
+Findings:
+
+- there are no obvious patterns between the deviance residuals and linear predictor (correct link function)
+- there is no pattern between deviance residuals and observation (independence of errors)
+- there are 102 obs that have high leverage - two times the mean of Cooks-d - but none that appear to be influential
+- there is a decreasing pattern in the deviance residuals vs predicted values, indicating a problem with model fit
+- there is limited overlap between the density distributions of predicted vs. actual values. 
 
 
+For additional information see: 
 
-Dunn, Peter K. and Gorden K. Smyth. 2018. Generalized Linear Models With Examples in R (Springer)
+[Dunn, Peter K. and Gorden K. Smyth, 2018](https://link.springer.com/book/10.1007/978-1-4419-0118-7)
+[Balajari, 2013](http://civil.colorado.edu/~balajir/CVEN6833/lectures/GammaGLM-01.pdf)
 
 ```{r}
 
@@ -1627,10 +1535,6 @@ plot(density(rstandard(gamma_reduced, type='deviance')), col='blue')
 # check for independence of observations
 
 scatter.smooth(rstandard(gamma_reduced, type='deviance'), col='gray')
-
-# check if selected distribution is appropriate
-
-qqnorm(qresid(gamma_reduced)); qqline(qresid(gamma_reduced))
 
 
 #check for high leverage
@@ -1653,18 +1557,38 @@ length(lev[lev > mean(lev) * 2])  #102 is two times the mean of Cooks-d, high le
 
 scatter.smooth(predict(gamma_reduced, type='response'), rstandard(gamma_reduced, type='deviance', col='gray'))
 
-# check actual vs predicted values for target_amt, another check on model fit
 
-plot(density(linear_test$target_amt), ylim=c(0, .0008), main='Actual vs Fitted (red): Target_Amt')
+# Density distributions: actual vs predicted values for target_amt, another check on model fit
 
-lines(density(predict(gamma_reduced, type='response')), col='red')
+shape_red <-gamma.shape(gamma_reduced) #  extract shape parameter, alpha = 2.73, SE 0.097
+
+predict_red<- predict(gamma_reduced, type='response', se = TRUE,
+        dispersion = 1/shape_red$alpha)
+
+summary(gamma_reduced, dispersion = 1/shape_red$alpha)
+
+shape1_df<-cbind(linear_train, predict_red)
+
+shape1_df%>%
+    dplyr::select(target_amt, fit)%>%
+    pivot_longer(cols=c('target_amt', 'fit'), names_to = 'Response', values_to = 'Cost')%>%
+    ggplot(aes(Cost, fill=Response))+
+    geom_density(alpha=.25)+
+    theme_minimal()+
+    labs(title = 'Density Distributions for Fitted & Predicted Values: Gamma Reduced Model')
 
 ```
 
+## Gamma-Model: Interactions 
 
-**6.9 GLMZ Model: Gamma (link=log) w/ interactions**
+Building on the reduced model, we construct a gamma regression model with 'car_type' as an interaction term and variable selection using AIC. 
 
-Note log transform on predictors did not help
+The result has the following form:
+
+*target_amt ~ bluebook + car_type + avg_clm + bluebook:car_type + car_type:avg_clm*
+
+The model AIC is now 25556 and the residual deviance is 532. 
+
 
 ```{r}
 
@@ -1672,16 +1596,30 @@ gamma_interact <- glm(target_amt ~ bluebook*car_type+car_age*car_type+avg_clm*ca
 
 gamma_reduced_int<-step(gamma_interact) # target_amt ~ bluebook + car_type + avg_clm + bluebook:car_type + car_type:avg_clm
 
-glm2<-glance(gamma_reduced_int)
+summary(gamma_reduced_int)
+
+glm3<-glance(gamma_reduced_int)
 
 
 
 ```
 
-**6.9.1 Diagnostics: GLMZ Model: Gamma (link=log) w/ interactions**
+### Diagnostics
+
+The requirements for a valid glm are explored below and summarized here for the reduced gamma model with interactions. 
+
+Findings:
+
+- there are no obvious patterns between the deviance residuals and linear predictor (correct link function)
+- there is no pattern between deviance residuals and observation (independence of errors)
+- there are 100 obs that have high leverage - two times the mean of Cooks-d - but none that appear to be influential
+- there is a decreasing pattern in the deviance residuals vs predicted values, indicating a problem with model fit
+- there is limited overlap between the density distributions of predicted vs. actual values. And the predicted distributions has several subsidiary peaks. 
+
+Overall, the diagnostics between the reduced gamma (main effects) and reduced gamma with interactions is comparable.
+
 
 ```{r}
-
 #plot residuals vs linear predictor -- looking for constant variance with deviance resids 
 #indicates correct(link)
 
@@ -1716,21 +1654,47 @@ scatter.smooth(predict(gamma_reduced_int, type='response'), rstandard(gamma_redu
 
 # check actual vs predicted values for target_amt, another check on model fit
 
-plot(density(linear_test$target_amt), ylim=c(0, .0008), main='Actual vs Fitted (red): Target_Amt')
+plot(density(linear_train$target_amt), ylim=c(0, .0008), main='Actual vs Fitted (red): Target_Amt')
 
 lines(density(predict(gamma_reduced_int, type='response')), col='red')
 
+# check actual vs predicted values for target_amt, another check on model fit
+
+
+shape_int <-gamma.shape(gamma_reduced_int) # alpha = 2.79, SE 0.099
+
+predict_int<- predict(gamma_reduced_int, type='response', se = TRUE,
+        dispersion = 1/shape_int$alpha)
+
+summary(gamma_reduced_int, dispersion = 1/shape_int$alpha)
+
+shape2_df<-cbind(linear_train, predict_int)
+
+shape2_df%>%
+    dplyr::select(target_amt, fit)%>%
+    pivot_longer(cols=c('target_amt', 'fit'), names_to = 'Response', values_to = 'Amount')%>%
+    ggplot(aes(Amount, fill=Response))+
+    geom_density(alpha=.25)+
+    theme_minimal()+
+    labs(title = 'Density Distributions for Fitted & Predicted Values: Gamma Interaction Model')
+
+
 ```
 
-**7.0 Select Model**
+## Model Selection
+
+We cannot make direct comparisons between the log-normal models and the gamma models. Given that the former did not meet several of the requirements of ordinary least squares, comparisons will be limited to the gamma model.
+
+The gamma model with interactions had the lowest AIC, BIC, and deviance scores. On this basis, it is the preferred choice among the included models. Given the relatively poor fit to the training data, however, it is unlikely to generalize well. 
+
 
 ```{r}
 
 # build a table to compare results of gamma models
 
-col_names<-c('Gamma-No Interactions', 'Gamma-Interactions')
+col_names<-c('Gamma - Null', 'Gamma-No Interactions', 'Gamma-Interactions')
 
-glm_results<-rbind(glm1, glm2)
+glm_results<-rbind(glm1, glm2, glm3)
 
 (compare_gammas<- cbind(col_names, glm_results)%>%
     dplyr::select(c(col_names, AIC, BIC, deviance))%>%
@@ -1739,29 +1703,72 @@ glm_results<-rbind(glm1, glm2)
      set_caption("Comparison of Gamma Model Results"))
 
 ```
-**8.0 Evaluate Model on Test**
+## Model Evaluation
 
+To evaluate how our selected model generalizes and performs, we apply it to our hold-out data ('linear_test'). Comparing predicted vs. actual values (scatterplot & density distributions) it is clear that the model does not perform well using the available data. This is not surprising given that claim payments are determined by a number of factors not included here. 
+
+For example:
+
+- Accident-related medical treatment & injury
+- Evidence of fault
+- Insured driver status
+- Cost of lost wages
+
+Using a reduced gamma model with interaction on the holdout data, the only significant variable was 'bluebook'. Model metrics for AIC, BIC, and Deviance were 8498.3, 8601.958, 154.8157 respectively. Interestingly, these values are far lower than those reported for the training dataset.  	
 
 ```{r}
 
-#collect predictions
 
-predictions<-predict(gamma_reduced_int,linear_train, type='response')
+# build and execute model on holdout data
 
-gamma_fit_plot<-cbind(linear_train, predictions)
+gamma_test <- glm(target_amt ~ bluebook*car_type+car_age*car_type+avg_clm*car_type, family=Gamma(link= 'log'), data=linear_test)
 
-ggplot(gamma_fit_plot, aes(x=target_amt, y=predictions))+
+#only bluebook turned out to be significant
+
+# plot predicted and fitted values and print summary
+
+shape_test <-gamma.shape(gamma_test) # alpha = 3.17, SE 0.19
+
+predict_test<- predict(gamma_test, type='response', se = TRUE, # collect predictions, acct for shape
+        dispersion = 1/shape_test$alpha)
+
+summary(gamma_test, dispersion = 1/shape_test$alpha) # print summary 
+
+glm4<-glance(gamma_test)%>% # collect select metrics
+    dplyr::select(c(AIC, BIC, deviance))
+# check fits using density distributions of fitted and predicated values
+
+shape3_df<-cbind(linear_test, predict_test)
+
+p1<-shape3_df%>%
+    dplyr::select(target_amt, fit)%>%
+    pivot_longer(cols=c('target_amt', 'fit'), names_to = 'Response', values_to = 'Amount')%>%
+    ggplot(aes(Amount, fill=Response))+
+    geom_density(alpha=.25)+
+    theme_minimal()+
+    labs(title = 'Density Distributions for Fitted & Predicted Values: Hold Out Data')
+
+p2<-ggplot(shape3_df, aes(x=target_amt, y=fit))+
     geom_point()+
-    theme_minimal()
+    geom_smooth(method=lm, sd=TRUE)+
+    theme_minimal()+
+    labs(title='Predicted vs. Actual Claim Payments: Hold-Out Data')
+
+
+(p1/p2) # print prediction plots 
+
 
 ```
-## 9.0 Summary##
 
-In general,
-the amount of payout is determined by such factors as:
+# Project Summary
+
+This study sought to classify drivers based on their probability of an auto accident and to then predict the amount of claim payout associated with that accident. The covariates provided in the dataset were sufficient to build/select an effective logistic classifier. Predicting claim payout proved more problematic - owing to the small number of covariates suited for individual payout predictions as well as lack of information on how payment amount was derived. In a number of instances, payments exceeded the 'bluebook' value of a vehicle. These observations were dropped in order to better focus on payments resulting from vehicle damage alone. That said, claim determinations are typically influenced by such factors as:
 
 - Accident-related medical treatment & injury
 - Evidence of fault
 - Insured driver status
 - Cost of lost wages
 - Cost of damages to vehicle(s)
+
+The data included here only provided indirect information tied to the last factor (cost due to damage). Nonetheless the modeling process was instructive. After comparing results for various log-normal and gamma regression models, a final selection was made on the basis of model validity as well as AIC, BIC,and Deviance scores. The selected model was a gamma regression (log link) with two numerical covariates ('bluebook' and 'avg_clm') and one interaction term ('car_type'). Applied to a holdout dataset, the model underestimated low/high values and over-estimated mid-range values. Additionally, only one covariate, 'bluebook', proved significant. Given these results, a differentiated model based on binned values for 'bluebook' may improve the accuracy of payment predictions. 
+
