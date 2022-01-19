@@ -1,23 +1,19 @@
 # insurance_model
-Predictive models for insurance risk analysis.
 
-Key outcomes:
+The purpose of this work is to estimate the probability that an individual (seeking auto insurance) will be in an accident and then to forecast the potential cost of an ensuing claim. A synthetic data set of ~ 8000 observations will be used to construct predictive models for this purpose. The use of synthetic data permits model development absent proprietary information, while also providing a heuristic for quantitative reasoning
 
-* Classification model to identify customer who pose auto insurance risk vs those who represent a low-risk ROI.
-* Part 1 - logistic classifiers using tidyverse and caret
-* Part 2. - machine learning classifiers using tidymodels
+Workflow:
 
-Work-to-date:
-
-* data preprocessing
+* data preprocessing completed
 * Part 1. logistic regression models completed
+* Part 2. log-Normal and gamma models completed
+* summary completed
 
-Work-to-do:
+Results:
 
-* Part 1. final code review and documentation
-* Part 1. data report, formatting, and publication
-* Part 2.
+This study sought to classify drivers based on their probability of an auto accident and to then predict the amount of claim payout associated with that accident. The covariates provided in the dataset were sufficient to build/select an effective logistic classifier. Predicting claim payout proved more problematic - owing to the small number of covariates suited for individual payout predictions as well as lack of information on how payment amount was derived. 
 
+Project Publication: https://rpubs.com/sconnin/856781
 
 insurance_model.Rmd = code for constructing part 1 models and report
 insurance_dataset.csv = raw data
